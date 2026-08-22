@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 class Settings(BaseModel):
-    app_host: str = os.getenv("APP_HOST", "0.0.0.0")
+    app_host: str = os.getenv("APP_HOST", "127.0.0.1")
     app_port: int = int(os.getenv("APP_PORT", "8000"))
 
     data_dir: Path = Path(os.getenv("DATA_DIR", "./data"))

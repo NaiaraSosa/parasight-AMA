@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,31 @@ from typing import Annotated
 import typer
 
 from app.core.config import ensure_dirs, settings
+
+# Wildcard bind addresses (accept connections on every interface) are valid for
+# uvicorn's --host, but they aren't valid URLs to open in a browser. uvicorn logs
+# them verbatim ("Uvicorn running on http://0.0.0.0:8000"), which recent Chrome
+# versions refuse to navigate to (ERR_ADDRESS_INVALID). Map them to a loopback
+# address for display purposes only.
+_WILDCARD_HOSTS = {"0.0.0.0", "::"}
+
+
+def _display_host(host: str) -> str:
+    return "127.0.0.1" if host in _WILDCARD_HOSTS else host
+
+
+class _SuppressUvicornBindMessage(logging.Filter):
+    """Drop uvicorn's raw "Uvicorn running on ..." line.
+
+    That message echoes the literal --host value, which is misleading (or
+    outright unusable, e.g. 0.0.0.0) as a URL to open in a browser. We log our
+    own accurate message instead; every other uvicorn.error log record (startup,
+    shutdown, errors) passes through unchanged.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "Uvicorn running on" not in record.getMessage()
+
 
 app = typer.Typer(
     name="segmentacion",
@@ -192,6 +218,9 @@ def run_webapp(
     ensure_dirs()
 
     import uvicorn
+
+    logging.getLogger("uvicorn.error").addFilter(_SuppressUvicornBindMessage())
+    typer.echo(f"Open in your browser: http://{_display_host(host)}:{port}")
 
     uvicorn.run("app.main:app", host=host, port=port, reload=reload)
 
