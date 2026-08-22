@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -20,19 +19,6 @@ _WILDCARD_HOSTS = {"0.0.0.0", "::"}
 
 def _display_host(host: str) -> str:
     return "127.0.0.1" if host in _WILDCARD_HOSTS else host
-
-
-class _SuppressUvicornBindMessage(logging.Filter):
-    """Drop uvicorn's raw "Uvicorn running on ..." line.
-
-    That message echoes the literal --host value, which is misleading (or
-    outright unusable, e.g. 0.0.0.0) as a URL to open in a browser. We log our
-    own accurate message instead; every other uvicorn.error log record (startup,
-    shutdown, errors) passes through unchanged.
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        return "Uvicorn running on" not in record.getMessage()
 
 
 app = typer.Typer(
@@ -219,10 +205,34 @@ def run_webapp(
 
     import uvicorn
 
-    logging.getLogger("uvicorn.error").addFilter(_SuppressUvicornBindMessage())
-    typer.echo(f"Open in your browser: http://{_display_host(host)}:{port}")
+    config = uvicorn.Config("app.main:app", host=host, port=port, reload=reload)
 
-    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+    if config.should_reload:
+        # --reload runs the actual server in a subprocess managed by uvicorn's
+        # own supervisor, so our custom Server subclass below can't be threaded
+        # across that boundary. Fall back to uvicorn's normal behavior; the
+        # early/misleading startup message is a minor cosmetic issue in a
+        # dev-only mode.
+        uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+        return
+
+    class _WebServer(uvicorn.Server):
+        """uvicorn.Server that reports the browsable URL only once the app has
+        actually finished starting, instead of uvicorn's own message.
+
+        uvicorn's default message is printed *before* startup runs and echoes
+        the raw --host value, which can be a non-browsable wildcard address
+        like 0.0.0.0 (Chrome refuses to navigate to it, ERR_ADDRESS_INVALID).
+        """
+
+        def _log_started_message(self, listeners) -> None:  # noqa: D401
+            pass  # replaced by the message below, printed after real startup
+
+        async def startup(self, sockets=None) -> None:
+            await super().startup(sockets)
+            typer.echo(f"Open in your browser: http://{_display_host(host)}:{port}")
+
+    _WebServer(config=config).run()
 
 
 if __name__ == "__main__":
