@@ -22,7 +22,7 @@ def _display_host(host: str) -> str:
 
 
 app = typer.Typer(
-    name="segmentacion",
+    name="parasight",
     help="Procesa imágenes de microscopía desde consola o levanta la webapp.",
     no_args_is_help=True,
 )

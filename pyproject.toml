@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "programa-segmentacion"
+name = "parasight-AMA"
 version = "0.1.0"
-description = "Web app para segmentación y métricas"
+description = "Segment and count parasites (amastigotes) in microsopy images"
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.110",
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-segmentacion = "app.cli:app"
+parasight = "app.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["app*"]

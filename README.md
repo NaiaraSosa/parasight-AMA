@@ -1,22 +1,26 @@
-﻿# **Herramienta automatizada para la segmentación y cuantificación de cultivos infectados**
+# Parasight-AMA
 
-En el Instituto de Investigaciones Biotecnológicas, se está trabajando para hallar fármacos capaces de curar la Enfermedad de Chagas. Con este fin, una parte del proceso consiste en ensayos de fármacos experimentales, en cultivos de células infectadas con los parásitos causantes de la enfermedad. Se toman  imágenes microscópicas del cultivo de las células, previa y posteriormente a ser infectadas. 
+## Automated segmentation and quantification of parasite-infected cell cultures 
 
-Actualmente, la curación manual de imágenes (conteo y etiquetado de células) resulta demandante  en tiempo, por lo que se busca **desarrollar una herramienta automatizada basada en modelos de segmentación automática**, capaz de acelerar este proceso.  
+In our laboratory work is underway to find drugs capable of curing Chagas disease. Part of the process involves testing experimental drugs on cultures of cells infected with parasites that cause the disease (_Trypanosoma cruzi_). Microscopic images of the cell culture are taken both before and after infection, and during treatment of cultures with drugs. 
 
-## Objetivo
-El objetivo principal de este proyecto es **automatizar las tareas de análisis de imágenes de microscopía**, con el fin de cuantificar y etiquetar células, de manera precisa, rápida y reproducible. 
+Currently, indirect methods are needed to assess levels of infection of cultures and parasite growth [^1]. Alternatively using microscopy, assessment of infected cell cultures requires time consuming manual inspection of images for counting cells, and parasites. Here we present  **an automated tool for  automatic identification of cells, and parasites based on AI segmentation models**, that speeds up this process.
 
-## Programa de segmentación selular
+## Objective
 
-Aplicacion web en FastAPI para ejecutar un pipeline de segmentación de imágenes de microscopía.
+The main objective of this project is to **automate microscopy image analysis tasks**, in order to quantify and label cells accurately, quickly, and reproducibly.
 
-## Requisitos
+## Cell segmentation program
+
+ - FastAPI web application for running a microscopy image segmentation pipeline, allowing the user to visualize results live. 
+ - CLI application for processing batches of images non-interactively
+
+## Requirements
 
 - Python 3.10
-- Conda/Miniforge (recomendado)
+- Conda/Miniforge (recommended)
 
-## Instalación
+## Installation
 
 1. Miniforge:
 
@@ -24,25 +28,34 @@ Aplicacion web en FastAPI para ejecutar un pipeline de segmentación de imágene
 
 ```bash
 wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh 
-bash Miniforge3-Linux-x86_64.sh -p /<carpeta>/miniforge3
+# install miniforge under $HOME/miniforge (e.g. /home/user/miniforge)
+bash Miniforge3-Linux-x86_64.sh 
+# alternatively install in another path prefix
+bash Miniforge3-Linux-x86_64.sh -p /<path>/miniforge3
 ```
 
 - Windows:
 
-Ingresar a: https://github.com/conda-forge/miniforge/releases/latest
+Go to: https://github.com/conda-forge/miniforge/releases/latest
 
-Descargar `Miniforge3-Windows-x86_64.exe` y ejecutar `.exe`.
+Download `Miniforge3-Windows-x86_64.exe` and run the `.exe` installer.
 
-2. Crear entorno conda con Python 3.10:
+2. Create a conda environment with Python 3.10:
 
-Especificar correctamente la ruta donde se desea crear el entorno:
+
 
 ```bash
-conda create -p /ruta/a/conda_envs/segapp_env python=3.10 -y
-conda activate /ruta/a/conda_envs/segapp_env
+# create in the default location 
+conda create -n parasight python=3.10 -y
+# and activate 
+conda activate parasight
+
+# or specify the path where you want to create the environment
+conda create -p /path/to/conda_envs/parasight python=3.10 -y
+conda activate /path/to/conda_envs/parasight
 ```
 
-3. Instalar dependencias del proyecto `pyproject.toml`:
+3. Install the project dependencies from `pyproject.toml`:
 
 ```bash
 pip install -U pip
@@ -51,112 +64,122 @@ pip uninstall -y torch torchvision torchaudio
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
-> Nota: el proyecto fija `numpy>=1.26,<2` porque TensorFlow 2.15/StarDist/CSBDeep no son compatibles con NumPy 2.x. Si `pip install -e .` actualiza NumPy a 2.x, volver a ejecutar `pip install -e .` desde esta carpeta lo baja a una versión compatible.
+> **Note:** the project pins `numpy>=1.26,<2` because TensorFlow 2.15/StarDist/CSBDeep are not compatible with NumPy 2.x. If `pip install -e .` upgrades NumPy to 2.x, run `pip install -e .` again from this folder to downgrade it to a compatible version.
 
-## Ejecutar el programa
+## Running the program
 
-La herramienta se puede usar de dos formas:
-- desde consola, para procesar imágenes directamente con comandos.
-- desde la webapp, para usar una interfaz visual en el navegador.
+The tool can be used in two ways:
+- from the console, to process images directly with commands.
+- from the webapp, to use a visual interface in the browser.
 
-Para ver los comandos disponibles y sus opciones:
-
-```bash
-segmentacion --help 
-```
-
-Para ver las opciones de cada modo:
-```bash
-segmentacion process --help 
-segmentacion web --help 
-```
-
-### Uso por consola
-
-Procesar una imagen, un ZIP o un directorio local con imágenes. Ejemplo de uso indicando carpeta de salida e identificador del experimento:
+To see the available commands and their options:
 
 ```bash
-segmentacion process ./test-imgs --output ./data/outputs --job-id experimento_01
+parasight --help 
 ```
 
-En este caso --job-id permite asignarle un nombre al procesamiento. 
 
-La entrada puede ser:
 
-- una imagen `.tif`, `.tiff` o `.czi`.
-- un `.zip` con imágenes soportadas.
-- un directorio con imágenes soportadas, buscando recursivamente en subcarpetas.
+To see the options for each mode:
+```bash
+parasight process --help 
+parasight web --help 
+```
 
-Nota importante: el comando preprocess todavía no puede utilizarse!
+### Console usage
 
-## Uso de la webapp
-
-Es útil para probar imágenes y revisar resultados. Desde la carpeta del proyecto ejecutar:
+Process a single image, a ZIP file, or a local directory of images. Example usage specifying the output folder and an experiment identifier:
 
 ```bash
-segmentacion web --host 127.0.0.1 --port 8010
+parasight process ./test-imgs --output ./data/outputs --job-id experimento_01
 ```
 
-Luego abrir en el navegador con la URL local:
+In this case, `--job-id` allows you to assign a name to the processing run.
+
+The input can be:
+
+- a TIFF (`.tif`, `.tiff`), or ZEISS CZI format `.czi` images.
+- a `.zip` file containing supported images in supported formats.
+- a directory with images in supported formats, searched recursively through subfolders.
+
+**Important note:** the preprocess command cannot be used yet! (under development).
+
+## Using the webapp
+
+Useful for testing images and reviewing results. From the project folder, run:
+
+```bash
+# using default host (localhost) and port (8000)
+parasight web 
+# or specify your own 
+parasight web --host 127.0.0.1 --port 8010
+```
+
+Then open the local URL in your browser:
 
 ```text
 http://127.0.0.1:8010
 ```
 
-## Estructura del proyecto
+## Project structure
 
 ```text
 app/
-  api/         # Endpoints FastAPI
-  core/        # Configuracion general
-  pipeline/    # Logica de procesamiento
-  services/    # Utilidades de jobs/archivos
-  cli.py       # Entrada Typer para linea de comandos
-  main.py      # Entrada de la app
+  api/         # FastAPI endpoints
+  core/        # General configuration
+  pipeline/    # Processing logic
+  services/    # Job/file utilities
+  cli.py       # Typer entry point for the command line
+  main.py      # App entry point
 data/
-  uploads/     # Archivos subidos por job
-  outputs/     # Resultados exportados por job
-  temp/        # Temporales de procesamiento
+  uploads/     # Files uploaded per job
+  outputs/     # Results exported per job
+  temp/        # Processing temp files
 ```
 
-## Flujo actual del procesamiento
+## Current processing workflow
 
-1. Carga de imagen (`.tif/.tiff/.czi`) desde archivo suelto, ZIP o directorio.
-2. Segmentacion de células con Cellpose.
-3. Filtro de células por área mínima (`CELL_MIN_AREA`) y elongación máxima (`CELL_MAX_ELONGATION`).
-4. Segmentación de parásitos con StarDist.
-5. Filtro de parásitos por área máxima (`PARASITE_MAX_AREA`).
-6. Merge de parásitos cercanos para reducir doble conteo.
-7. Asignación parasito -> célula por solape y proximidad, y clusters en una segunda instancia.
-8. Cálculo de métricas y export de resultados.
+1. Image loading (`.tif/.tiff/.czi`) from a single file, ZIP, or directory.
+2. Cell segmentation with Cellpose 3 [^2].
+3. Cell filtering by minimum area (`CELL_MIN_AREA`) and maximum elongation (`CELL_MAX_ELONGATION`).
+4. Parasite segmentation with StarDist 0.9 [^3].
+5. Parasite filtering by maximum area (`PARASITE_MAX_AREA`).
+6. Merging of nearby parasites to reduce double counting.
+7. Parasite --> cell assignment by overlap and proximity, and clustering in a second pass.
+8. Metric calculation and export of results.
 
-## Métricas exportadas
+## Exported metrics
 
-El ZIP incluye dos CSV principales:
+The ZIP includes two main CSV files:
 
-- `metricas_generales.csv`: resumen del procesamiento completo.
-- `metricas_por_imagen.csv`: una fila por imagen procesada.
+- `metricas_generales.csv`: summary of the full processing run.
+- `metricas_por_imagen.csv`: one row per processed image.
 
-Columnas principales:
+Main columns:
 
-- total_celulas: número total de células detectadas.
-- total_parasitos: número total de parásitos detectados.
-- celulas_infectadas: células con al menos un parásito asignado.
-- parasitos_no_asignados: cantidad de parásitos que no pudieron asignarse a ninguna célula.
-- parasitos_por_celula = cantidad de parásitos asignados por célula.
+- total_celulas: total number of detected cells.
+- total_parasitos: total number of detected parasites.
+- celulas_infectadas: cells with at least one assigned parasite.
+- parasitos_no_asignados: number of parasites that could not be assigned to any cell.
+- parasitos_por_celula = number of parasites assigned per cell.
 
-## Estructura del ZIP de salida
+## Output ZIP structure
 
-Por cada imagen:
-- input.tiff: imagen original convertida a TIFF.
-- cell_mask.tiff: máscara de instancias de células.
-- parasite_mask.tiff: máscara de instancias de parásitos.
-- infected_overlay: imagen original con células infectadas marcadas en rojo.
+For each image:
+- input.tiff: original image converted to TIFF.
+- cell_mask.tiff: cell instance mask.
+- parasite_mask.tiff: parasite instance mask.
+- infected_overlay: original image with infected cells marked in red.
 
-Por cada experimento:
-- metricas_generales.csv: métricas generales del procesamiento.
-- metricas_por_imagen.csv: métricas por imagen.
-- histograma_global_global_parasitos_por_celula: distribución de los parásitos por célula a lo largo de todas las imágenes. 
+For each experiment:
+- metricas_generales.csv: general processing metrics.
+- metricas_por_imagen.csv: per-image metrics.
+- histograma_global_global_parasitos_por_celula: distribution of parasites per cell across all images.
 
+## References
 
+[1] Didier Garnham M, Agüero FA, Ramírez JC, Agüero F, Salas-Sarduy E. Identification of Antifungal Agents AR-12 and Fosmanogepix as Anti-Trypanosoma cruzi Drugs through an Enhanced Fluorogenic β-Galactosidase Phenotypic Screening Assay. ACS Infect Dis. 2026 Feb 13;12(2):724-737. doi: 10.1021/acsinfecdis.5c00900. Epub 2026 Jan 1. PMID: 41479158.
 
+[2] Stringer C, Wang T, Michaelos M, Pachitariu M. Cellpose: a generalist algorithm for cellular segmentation. Nat Methods. 2021 Jan;18(1):100-106. doi: 10.1038/s41592-020-01018-x. Epub 2020 Dec 14. PMID: 33318659.
+
+[3] Weigert M, Schmidt U. Nuclei Instance Segmentation and Classification in Histopathology Images with Stardist. The IEEE International Symposium on Biomedical Imaging Challenges (ISBIC) (2022). doi: 10.1109/ISBIC56247.2022.9854534.
