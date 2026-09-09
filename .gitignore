@@ -1,6 +1,6 @@
 __pycache__/
 data/
 .vscode/
-programa_segmentacion.egg-info/
+*.egg-info/
 .env
 metricas/

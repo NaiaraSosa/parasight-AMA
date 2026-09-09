@@ -1,0 +1,35 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: >-
+  Parasight-AMA: automated segmentation and quantification
+  of parasite-infected cell cultures 
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Naiara
+    name-particle: B
+    family-names: Sosa
+    email: nbsosa@estudiantes.unsam.edu.ar
+    affiliation: Universidad Nacional de San Martín
+  - given-names: Emir
+    family-names: Salas Sarduy
+    email: esalas@iib.unsam.edu.ar
+    affiliation: Universidad Nacional de San Martín
+    orcid: 'https://orcid.org/0000-0002-9709-7552'
+  - given-names: Fernán
+    family-names: Agüero
+    email: fernan@iib.unsam.edu.ar
+    orcid: 'https://orcid.org/0000-0003-1331-5741'
+    affiliation: Universidad Nacional de San Martín
+repository-code: 'https://github.com/trypanosomatics/parasight-AMA'
+keywords:
+  - trypanosoma cruzi
+  - amastigote
+  - fluorescence microscopy
+  - DAPI
+license: BSD-2-Clause
+version: 0.1.0

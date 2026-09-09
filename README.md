@@ -171,17 +171,10 @@ For each image:
 - parasite_mask.tiff: parasite instance mask.
 - infected_overlay: original image with infected cells marked in red.
 
-For each experiment:
-- metricas_generales.csv: general processing metrics.
-- metricas_por_imagen.csv: per-image metrics.
-- histograma_global_global_parasitos_por_celula: distribution of parasites per cell across all images.
+Por cada experimento:
+- metricas_generales.csv: métricas generales del procesamiento.
+- metricas_por_imagen.csv: métricas por imagen.
+- histograma_global_global_parasitos_por_celula: distribución de los parásitos por célula a lo largo de todas las imágenes. 
 
-## References
-
-[1] Didier Garnham M, Agüero FA, Ramírez JC, Agüero F, Salas-Sarduy E. Identification of Antifungal Agents AR-12 and Fosmanogepix as Anti-Trypanosoma cruzi Drugs through an Enhanced Fluorogenic β-Galactosidase Phenotypic Screening Assay. ACS Infect Dis. 2026 Feb 13;12(2):724-737. doi: 10.1021/acsinfecdis.5c00900. Epub 2026 Jan 1. PMID: 41479158.
-
-[2] Stringer C, Wang T, Michaelos M, Pachitariu M. Cellpose: a generalist algorithm for cellular segmentation. Nat Methods. 2021 Jan;18(1):100-106. doi: 10.1038/s41592-020-01018-x. Epub 2020 Dec 14. PMID: 33318659.
-
-[3] Weigert M, Schmidt U. Nuclei Instance Segmentation and Classification in Histopathology Images with Stardist. The IEEE International Symposium on Biomedical Imaging Challenges (ISBIC) (2022). doi: 10.1109/ISBIC56247.2022.9854534.
 
 

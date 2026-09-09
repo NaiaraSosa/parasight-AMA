@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from app.api.routes import router as api_router
 from app.core.config import ensure_dirs
 
-app = FastAPI(title="Programa Segmentacion")
+app = FastAPI(title="Parasight")
 templates = Jinja2Templates(directory="app/templates")
 
 app.include_router(api_router)

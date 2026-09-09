@@ -9,8 +9,20 @@ import typer
 
 from app.core.config import ensure_dirs, settings
 
+# Wildcard bind addresses (accept connections on every interface) are valid for
+# uvicorn's --host, but they aren't valid URLs to open in a browser. uvicorn logs
+# them verbatim ("Uvicorn running on http://0.0.0.0:8000"), which recent Chrome
+# versions refuse to navigate to (ERR_ADDRESS_INVALID). Map them to a loopback
+# address for display purposes only.
+_WILDCARD_HOSTS = {"0.0.0.0", "::"}
+
+
+def _display_host(host: str) -> str:
+    return "127.0.0.1" if host in _WILDCARD_HOSTS else host
+
+
 app = typer.Typer(
-    name="segmentacion",
+    name="parasight",
     help="Procesa imágenes de microscopía desde consola o levanta la webapp.",
     no_args_is_help=True,
 )
@@ -193,7 +205,34 @@ def run_webapp(
 
     import uvicorn
 
-    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+    config = uvicorn.Config("app.main:app", host=host, port=port, reload=reload)
+
+    if config.should_reload:
+        # --reload runs the actual server in a subprocess managed by uvicorn's
+        # own supervisor, so our custom Server subclass below can't be threaded
+        # across that boundary. Fall back to uvicorn's normal behavior; the
+        # early/misleading startup message is a minor cosmetic issue in a
+        # dev-only mode.
+        uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+        return
+
+    class _WebServer(uvicorn.Server):
+        """uvicorn.Server that reports the browsable URL only once the app has
+        actually finished starting, instead of uvicorn's own message.
+
+        uvicorn's default message is printed *before* startup runs and echoes
+        the raw --host value, which can be a non-browsable wildcard address
+        like 0.0.0.0 (Chrome refuses to navigate to it, ERR_ADDRESS_INVALID).
+        """
+
+        def _log_started_message(self, listeners) -> None:  # noqa: D401
+            pass  # replaced by the message below, printed after real startup
+
+        async def startup(self, sockets=None) -> None:
+            await super().startup(sockets)
+            typer.echo(f"Open in your browser: http://{_display_host(host)}:{port}")
+
+    _WebServer(config=config).run()
 
 
 if __name__ == "__main__":
