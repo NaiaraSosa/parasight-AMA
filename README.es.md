@@ -58,11 +58,13 @@ conda activate /ruta/a/conda_envs/parasight
 ```bash
 pip install -U pip
 pip install -e .
-pip uninstall -y torch torchvision torchaudio
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
 > **Nota:** el proyecto fija `numpy>=1.26,<2` porque TensorFlow 2.15/StarDist/CSBDeep no son compatibles con NumPy 2.x. Si `pip install -e .` actualiza NumPy a 2.x, volver a ejecutar `pip install -e .` desde esta carpeta lo baja a una versión compatible.
+>
+> La reinstalacion de PyTorch no esta relacionada con NumPy. `cellpose` depende de PyTorch, y este proyecto fue probado con el build CUDA 12.8 de PyTorch (`cu128`) para que Cellpose pueda usar la GPU cuando este disponible. `torchvision` se instala porque Cellpose lo requiere. `torchaudio` no es necesario para este proyecto.
 
 ## Ejecutar el programa
 
@@ -114,7 +116,7 @@ parasight web --host 127.0.0.1 --port 8010
 Luego abrir la URL local en el navegador:
 
 ```text
-http://127.0.0.1:8010
+http://127.0.0.1:8000
 ```
 
 ## Estructura del proyecto
@@ -133,10 +135,12 @@ data/
   temp/        # Temporales de procesamiento
 ```
 
+La carpeta `data/` no se guarda en Git intencionalmente. La webapp crea `data/uploads`, `data/outputs` y `data/temp` automaticamente cuando arranca. La CLI tambien crea las carpetas de salida y temporales que necesita para cada ejecucion.
+
 ## Flujo actual de procesamiento
 
 1. Carga de imagen (`.tif/.tiff/.czi`) desde un archivo suelto, ZIP o directorio.
-2. Segmentación de células con Cellpose 3 [^2].
+2. Segmentación de células con Cellpose 4 [^2].
 3. Filtro de células por área mínima (`CELL_MIN_AREA`) y elongación máxima (`CELL_MAX_ELONGATION`).
 4. Segmentación de parásitos con StarDist 0.9.1 [^3].
 5. Filtro de parásitos por área máxima (`PARASITE_MAX_AREA`).
