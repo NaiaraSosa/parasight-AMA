@@ -40,7 +40,7 @@ The paths below are the defaults these files use. If you change them, change the
 - **Model weights download on first use**: Cellpose to `~/.cellpose` (overridable with `CELLPOSE_LOCAL_MODELS_PATH`), StarDist to `~/.keras`. The service user needs a writable `$HOME`.
 - **Storage** is set with env vars (`app/core/config.py`): `DATA_DIR`, `UPLOADS_DIR`, `OUTPUTS_DIR`, `TEMP_DIR`. Per job the app writes `uploads/<uuid>/`, `outputs/<uuid>/` (previews, CSVs, a results ZIP) and `temp/<uuid>/` (ZIPs are extracted here). **Nothing is ever cleaned up.**
 - **Uploads pass through `$TMPDIR` first.** Starlette spools the multipart body to a temp file before the app copies it to `uploads/`. On many servers `/tmp` sits on a small root filesystem, so point `TMPDIR` at the data volume.
-- **Processing is synchronous inside the HTTP request** (`POST /process/{job_id}`), and **one job runs at a time**: other users' jobs wait their turn in their own open request. A large batch keeps the request open for as long as the processing takes (see [IMPROVE.md](IMPROVE.md)).
+- **Jobs run in the background, one at a time.** Submitting a job queues it and redirects to `/jobs/{job_id}`, a status page that shows the queue position or progress and then the results. Users can close the tab and come back to that link. Each job's state is kept in `outputs/<uuid>/status.json` and `result.json`.
 - `MAX_UPLOAD_MB` limits each uploaded file (HTTP 413 above it; `0` = no limit). The app default is 500 MB; `deploy/parasight.env.example` raises it to 20 GB for image batches.
 - **No authentication.** Anyone who can reach the port can upload images and download a job's results if they know its UUID.
 
@@ -184,7 +184,7 @@ cd /opt/parasight-AMA && sudo git pull
 sudo systemctl restart parasight
 ```
 
-Jobs are processed inside the request, so a restart kills any job that is running.
+A restart interrupts the job that is running: it is marked as failed and the user can retry it from its status page. Queued jobs are picked up again automatically. Check for a running job before restarting: `grep -l '"running"' /srv/parasight/data/outputs/*/status.json`.
 
 ## 6. Network access and coexistence
 
@@ -212,7 +212,7 @@ Alternatives:
 
       client_max_body_size 0;                # or a real limit, e.g. 20g
       proxy_request_buffering off;           # stream uploads instead of buffering them in nginx
-      proxy_read_timeout 3600s;              # processing is synchronous; long jobs need this
+      proxy_read_timeout 300s;               # jobs run in the background; this only covers uploads/pages
       proxy_send_timeout 3600s;
 
       location / {
@@ -252,7 +252,7 @@ Then use the new path in the `useradd`/`mkdir`/`conda` commands above and in the
 ## 9. Known limitations
 
 1. **Upload limit applies after spooling.** `MAX_UPLOAD_MB` is checked while the file is saved, but the whole body has already been spooled to `$TMPDIR`. To stop oversized uploads earlier, cap them at a reverse proxy (`client_max_body_size`).
-2. **Synchronous processing:** long batches hold the HTTP connection, and a timeout or service restart loses the result page. The output files stay on disk.
+2. **A restart interrupts the running job.** It is marked as failed and must be retried; queued jobs resume automatically.
 3. **No authentication.** Job UUIDs are the only thing protecting results. Use firewall rules or proxy auth (section 6).
 4. `app/core/config.py` reads environment variables only, not a `.env` file. Under systemd this is handled by `EnvironmentFile=`.
 

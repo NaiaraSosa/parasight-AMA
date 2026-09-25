@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Estado del job</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    {% if status.state in ["queued", "running"] %}
+    <noscript><meta http-equiv="refresh" content="5" /></noscript>
+    {% endif %}
+  </head>
+  <body>
+    {% set kind_labels = {
+      "process": "Segmentación",
+      "process_accepted": "Segmentación (solo imágenes usables)",
+      "preprocess": "Control de calidad",
+    } %}
+    {% set retry_paths = {
+      "process": "/process/",
+      "process_accepted": "/process-accepted/",
+      "preprocess": "/preprocess/",
+    } %}
+    <main class="page">
+      <section class="panel">
+        <p class="eyebrow">{{ kind_labels.get(status.kind, "Procesamiento") }}</p>
+
+        {% if status.state == "failed" %}
+        <h1>El procesamiento falló</h1>
+        <p class="error-text">{{ status.error or "Error desconocido." }}</p>
+        {% else %}
+        <h1 id="state-title">{{ "En cola" if status.state == "queued" else "Procesando imágenes" }}</h1>
+        <p id="state-text" class="muted">
+          {% if status.state == "queued" %}
+            {% if status.jobs_ahead %}Hay {{ status.jobs_ahead }} job(s) antes que este.{% else %}Empieza en unos segundos.{% endif %}
+          {% elif status.total %}
+            Imagen {{ status.done }} de {{ status.total }}.
+          {% else %}
+            Preparando las imágenes…
+          {% endif %}
+        </p>
+        <div class="progress-track">
+          <div
+            id="progress-bar"
+            class="progress-bar{% if status.state == 'running' and status.total %} is-determinate{% endif %}"
+            {% if status.state == 'running' and status.total %}style="width: {{ (100 * status.done / status.total) | round | int }}%"{% endif %}
+          ></div>
+        </div>
+        <p class="muted job-hint">
+          Podés cerrar esta página y volver más tarde a este enlace para ver los resultados.
+        </p>
+        {% endif %}
+
+        <div class="meta">
+          <p><span>Job ID</span> {{ status.job_id }}</p>
+        </div>
+
+        <div class="actions">
+          {% if status.state == "failed" and status.kind in retry_paths %}
+          <form action="{{ retry_paths[status.kind] }}{{ status.job_id }}" method="post">
+            <button type="submit" class="btn btn-primary">Reintentar</button>
+          </form>
+          {% endif %}
+          <a href="/" class="btn btn-ghost">Volver al inicio</a>
+        </div>
+      </section>
+    </main>
+
+    {% if status.state in ["queued", "running"] %}
+    <script>
+      (() => {
+        const url = "/jobs/{{ status.job_id }}/status";
+        const title = document.getElementById("state-title");
+        const text = document.getElementById("state-text");
+        const bar = document.getElementById("progress-bar");
+
+        async function poll() {
+          try {
+            const res = await fetch(url, { cache: "no-store" });
+            if (!res.ok) throw new Error(res.status);
+            const s = await res.json();
+
+            if (s.state !== "queued" && s.state !== "running") {
+              window.location.reload();  // terminado o con error: el servidor arma la página
+              return;
+            }
+            if (s.state === "queued") {
+              title.textContent = "En cola";
+              text.textContent = s.jobs_ahead
+                ? `Hay ${s.jobs_ahead} job(s) antes que este.`
+                : "Empieza en unos segundos.";
+              bar.classList.remove("is-determinate");
+              bar.style.width = "";
+            } else {
+              title.textContent = "Procesando imágenes";
+              if (s.total) {
+                text.textContent = `Imagen ${s.done} de ${s.total}.`;
+                bar.classList.add("is-determinate");
+                bar.style.width = `${Math.round((100 * s.done) / s.total)}%`;
+              } else {
+                text.textContent = "Preparando las imágenes…";
+              }
+            }
+          } catch (err) {
+            // Error de red transitorio: se reintenta en el próximo ciclo.
+          }
+          setTimeout(poll, 3000);
+        }
+
+        setTimeout(poll, 3000);
+      })();
+    </script>
+    {% endif %}
+  </body>
+</html>

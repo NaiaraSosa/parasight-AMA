@@ -8,9 +8,9 @@ An analysis of how the web app behaves with several users at once (2–3), with 
 |---|---|
 | 1. Non-blocking upload (+ `MAX_UPLOAD_MB` enforced, filename sanitized, format checked) | **Done** |
 | 2. One job at a time (`PIPELINE_LOCK`) | **Done** |
-| 3. Reject duplicate runs of the same job (409) | **Done** |
+| 3. Reject duplicate runs of the same job | **Done** (now: redirect to the job's status page) |
 | 4. Thread-safe histograms (no pyplot) and model loading | **Done** (models still load on first use) |
-| 5. Background jobs + status page | To do |
+| 5. Background jobs + status page | **Done** |
 | 6. Template paths relative to the code | **Done** (authentication: to do) |
 | 7. Speed up `compute_metrics` | To do (new, see problem 8) |
 
@@ -165,7 +165,7 @@ These are cheap, and they keep the code safe even if the lock in Fix 2 is later 
 - Put a lock around model loading in `_get_cellpose_model()` / `_get_stardist_model()`, checking `_MODEL is None` both before and after taking the lock.
 - Optionally, load both models at startup (`@app.on_event("startup")`) so the first user doesn't wait for the download and load.
 
-### Fix 5: Run jobs in the background, with a status page (UX, later)
+### Fix 5: Run jobs in the background, with a status page (done)
 
 Stop running the pipeline inside the request:
 1. `POST /process/{job_id}` puts the job in a queue and immediately redirects to `GET /jobs/{job_id}`.
@@ -174,6 +174,14 @@ Stop running the pipeline inside the request:
 4. The status page polls it every few seconds and shows the results when done.
 
 This removes the long-open request, makes refresh safe (it just re-reads the status), lets users close the tab and come back, and survives proxy timeouts. At 2–3 users an in-process queue is enough; Celery/Redis would add moving parts without benefit. The one thing it can't do is survive a service restart mid-job. To handle that, mark `running` jobs as `failed` on startup so users can resubmit.
+
+**As implemented** (`app/services/jobs.py`, `app/templates/job_status.html`):
+- `POST /process/{id}`, `/process-accepted/{id}` and `/preprocess/{id}` queue the job and answer **303** to `/jobs/{id}` in a few milliseconds. The 303 makes the browser switch to GET, so refreshing never resubmits.
+- One daemon worker thread takes jobs from a deque in order; the lock from Fix 2 and the 409 from Fix 3 are gone. Submitting a job that is queued, running, or already done with the same kind just redirects to its page; a failed job can be retried.
+- `status.json` (state, kind, image *n*/*N*, timestamps, error) and `result.json` (what the results page needs) are written atomically in `outputs/<id>/`, next to the job folder, so they are not included in the results ZIP.
+- `GET /jobs/{id}` shows the queue position ("N job(s) antes que este") or a progress bar, polls `GET /jobs/{id}/status` (JSON) every 3 s, and reloads into the normal results page when done, or an error with a **Reintentar** button when failed. Without JavaScript it refreshes every 5 s.
+- On startup, `running` jobs become `failed` ("Interrumpido por un reinicio del servidor") and `queued` jobs are queued again in their original order.
+- `run_pipeline*` / `run_preprocess*` take an optional `progress(done, total)` callback; the CLI doesn't pass one and is unchanged.
 
 ### Fix 6: Smaller cleanups
 
@@ -199,7 +207,7 @@ Fixes 1–4 and 6 were tested on a dev instance (single uvicorn worker, NVIDIA L
 |---|---|---|
 | `GET /` latency while a 3 GB file is uploaded | median 3 ms, **max 3.4 s** (event loop blocked during the copy) | median 3 ms, **max 18 ms** |
 | Two 8-image jobs submitted 2 s apart | ran in parallel threads | second job waits; both return 200 with correct results |
-| Same job submitted again while running or queued | second pipeline on the same folder | **409** immediately |
+| Same job submitted again while running or queued | second pipeline on the same folder | no second run (409 with Fix 3; since Fix 5, redirect to the status page) |
 | Page loads while jobs run | — | 2–13 ms |
 | Upload over `MAX_UPLOAD_MB` | accepted | **413**, partial files removed |
 | Filename `../../evil.tiff` / `C:\x\win.tiff` | used as given | saved as `evil.tiff` / `win.tiff` inside the job folder |
@@ -208,9 +216,21 @@ Fixes 1–4 and 6 were tested on a dev instance (single uvicorn worker, NVIDIA L
 
 Histograms from the new Figure-based code were checked visually and render correctly.
 
+Fix 5 was tested the same way:
+
+| Test | Result |
+|---|---|
+| Submit a job | 303 to `/jobs/{id}` in ~3 ms |
+| 3 jobs submitted at once (2 valid, 1 corrupt ZIP) | ran in order; queue position and image *n*/4 reported correctly; the corrupt one failed with "File is not a zip file" and the worker carried on |
+| Resubmit a finished job | redirect only, not run again |
+| Results page, previews, ZIP download after completion | served from `result.json` / disk |
+| Stop the service mid-job (1/4) with another job queued, then start it | running job → failed "Interrumpido…"; queued job resumed and finished; **Reintentar** re-ran the failed one successfully |
+| Preprocess → "process only usable images" | both steps queue, report progress and render their pages |
+| CLI (`parasight process`) | unchanged |
+
 To repeat under real load:
 1. Start the service. In one terminal run `watch -n1 nvidia-smi`; in another, `sudo journalctl -u parasight -f`.
 2. From 3 browsers (or scripts using `curl -F file=@batch.zip`), upload the test images and start processing at the same time.
 3. While they run, load `/` and a preview URL from a fourth browser. It should respond right away.
 4. Record peak GPU memory, time per job and any errors in the log.
-5. Refresh a processing page mid-job: you should get a 409 (or, after Fix 5, the status page), not a second run.
+5. Refresh a processing page mid-job: it should keep showing progress, never start a second run.

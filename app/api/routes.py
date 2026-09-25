@@ -2,13 +2,20 @@ import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.config import settings
-from app.pipeline.preprocess import run_preprocess
-from app.pipeline.runner import IMAGE_EXTS, run_pipeline
-from app.services.jobs import JobAlreadyRunning, create_job, exclusive_job, is_valid_job_id
+from app.pipeline.runner import IMAGE_EXTS
+from app.services.jobs import (
+    create_job,
+    is_valid_job_id,
+    job_exists,
+    jobs_ahead,
+    read_result,
+    read_status,
+    submit,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -25,18 +32,6 @@ _COPY_CHUNK = 16 * 1024 * 1024
 def _check_job_id(job_id: str) -> None:
     if not is_valid_job_id(job_id):
         raise HTTPException(status_code=404, detail="Job no encontrado.")
-
-
-def _run_exclusive(job_id: str, func, *args, **kwargs):
-    _check_job_id(job_id)
-    try:
-        with exclusive_job(job_id):
-            return func(job_id, *args, **kwargs)
-    except JobAlreadyRunning:
-        raise HTTPException(
-            status_code=409,
-            detail="Este job ya se está procesando. Esperá a que termine.",
-        )
 
 
 # def (no async): la copia del archivo es bloqueante y corre en el threadpool,
@@ -84,32 +79,82 @@ def upload_file(request: Request, file: UploadFile = File(...)):
     )
 
 
+def _enqueue(job_id: str, kind: str) -> RedirectResponse:
+    _check_job_id(job_id)
+    if not job_exists(job_id):
+        raise HTTPException(status_code=404, detail="Job no encontrado.")
+    submit(job_id, kind)
+    # 303: el navegador sigue con GET, así recargar la página no reenvía el POST.
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
 @router.post("/process/{job_id}")
-def process_job(request: Request, job_id: str):
-    zip_path, preview_items, summary_metrics = _run_exclusive(job_id, run_pipeline)
-
-    for item in preview_items:
-        folder_name = item.get("folder_name", "")
-        item["input_url"] = f"/preview/{job_id}/{folder_name}/input_preview.png"
-        item["input_infected_url"] = f"/preview/{job_id}/{folder_name}/infected_overlay.png"
-        item["cell_url"] = f"/preview/{job_id}/{folder_name}/cell_mask_preview.png"
-        item["parasite_url"] = f"/preview/{job_id}/{folder_name}/parasite_mask_preview.png"
-
-    return templates.TemplateResponse(
-        request,
-        "processed.html",
-        {
-            "job_id": job_id,
-            "zip_name": zip_path.name,
-            "preview_items": preview_items,
-            "summary_metrics": summary_metrics,
-        },
-    )
+def process_job(job_id: str):
+    return _enqueue(job_id, "process")
 
 
 @router.post("/process-accepted/{job_id}")
-def process_accepted_job(request: Request, job_id: str):
-    zip_path, preview_items, summary_metrics = _run_exclusive(job_id, run_pipeline, accepted_only=True)
+def process_accepted_job(job_id: str):
+    return _enqueue(job_id, "process_accepted")
+
+
+@router.post("/preprocess/{job_id}")
+def preprocess_job(job_id: str):
+    return _enqueue(job_id, "preprocess")
+
+
+def _status_payload(job_id: str) -> dict:
+    status = read_status(job_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Job no encontrado.")
+    return {
+        "job_id": job_id,
+        "kind": status.get("kind"),
+        "state": status.get("state"),
+        "done": status.get("done") or 0,
+        "total": status.get("total"),
+        "jobs_ahead": jobs_ahead(job_id) if status.get("state") == "queued" else None,
+        "error": status.get("error"),
+    }
+
+
+@router.get("/jobs/{job_id}/status")
+def job_status(job_id: str):
+    _check_job_id(job_id)
+    return _status_payload(job_id)
+
+
+@router.get("/jobs/{job_id}")
+def job_page(request: Request, job_id: str):
+    _check_job_id(job_id)
+    status = _status_payload(job_id)
+    result = read_result(job_id) if status["state"] == "done" else None
+
+    if result is None:
+        # En cola, procesando o con error (o terminado sin result.json).
+        if status["state"] == "done":
+            status["state"] = "failed"
+            status["error"] = "No se encontraron los resultados de este job."
+        return templates.TemplateResponse(request, "job_status.html", {"status": status})
+
+    preview_items = result.get("preview_items", [])
+    if result.get("kind") == "preprocess":
+        for item in preview_items:
+            folder_name = item.get("folder_name", "")
+            item["input_url"] = f"/preview/{job_id}/{folder_name}/input_preview.png"
+            item["quality_url"] = f"/preview/{job_id}/{folder_name}/quality_overlay.png"
+            item["cell_url"] = f"/preview/{job_id}/{folder_name}/cell_mask_preview.png"
+
+        return templates.TemplateResponse(
+            request,
+            "preprocessed.html",
+            {
+                "job_id": job_id,
+                "report_name": result.get("report_name", ""),
+                "preview_items": preview_items,
+                "summary": result.get("summary", {}),
+            },
+        )
 
     for item in preview_items:
         folder_name = item.get("folder_name", "")
@@ -123,31 +168,9 @@ def process_accepted_job(request: Request, job_id: str):
         "processed.html",
         {
             "job_id": job_id,
-            "zip_name": zip_path.name,
+            "zip_name": result.get("zip_name", ""),
             "preview_items": preview_items,
-            "summary_metrics": summary_metrics,
-        },
-    )
-
-
-@router.post("/preprocess/{job_id}")
-def preprocess_job(request: Request, job_id: str):
-    preview_items, summary, report_path = _run_exclusive(job_id, run_preprocess)
-
-    for item in preview_items:
-        folder_name = item.get("folder_name", "")
-        item["input_url"] = f"/preview/{job_id}/{folder_name}/input_preview.png"
-        item["quality_url"] = f"/preview/{job_id}/{folder_name}/quality_overlay.png"
-        item["cell_url"] = f"/preview/{job_id}/{folder_name}/cell_mask_preview.png"
-
-    return templates.TemplateResponse(
-        request,
-        "preprocessed.html",
-        {
-            "job_id": job_id,
-            "report_name": report_path.name,
-            "preview_items": preview_items,
-            "summary": summary,
+            "summary_metrics": result.get("summary_metrics", {}),
         },
     )
 

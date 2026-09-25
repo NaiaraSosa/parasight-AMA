@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.api.routes import router as api_router
 from app.core.config import ensure_dirs
+from app.services.jobs import start_worker
 
 APP_DIR = Path(__file__).resolve().parent
 
@@ -21,6 +22,7 @@ app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="stati
 @app.on_event("startup")
 def _startup():
     ensure_dirs()
+    start_worker()
 
 
 @app.get("/")

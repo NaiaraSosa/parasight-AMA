@@ -4,6 +4,7 @@ import os
 import shutil
 import zipfile
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import tifffile
@@ -282,7 +283,9 @@ def run_pipeline_from_input(
     job_temp_dir: Path,
     job_id: str,
     accepted_image_ids: set[str] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> tuple[Path, list[dict[str, object]], dict[str, object]]:
+    """progress(done, total) se llama al empezar y después de cada imagen."""
     input_path = Path(input_path)
     job_output_dir = Path(job_output_dir)
     job_temp_dir = Path(job_temp_dir)
@@ -307,6 +310,9 @@ def run_pipeline_from_input(
 
     all_metrics: list[dict[str, object]] = []
     preview_items: list[dict[str, object]] = []
+
+    if progress:
+        progress(0, len(image_entries))
 
     for i, img_path in image_entries:
         img_id = f"{i:04d}"
@@ -402,6 +408,9 @@ def run_pipeline_from_input(
         )
         save_preview(folder / "infected_overlay.png", infected_overlay)
 
+        if progress:
+            progress(len(preview_items), len(image_entries))
+
     summary = summarize_job(all_metrics)
     summary_row = {"job_id": job_id, **summary}
     all_parasites_per_cell = [
@@ -428,6 +437,7 @@ def run_pipeline_from_input(
 def run_pipeline(
     job_id: str,
     accepted_only: bool = False,
+    progress: Callable[[int, int], None] | None = None,
 ) -> tuple[Path, list[dict[str, object]], dict[str, object]]:
     job_upload_dir = settings.uploads_dir / job_id
     job_output_dir = settings.outputs_dir / job_id
@@ -449,4 +459,5 @@ def run_pipeline(
         job_temp_dir=job_temp_dir,
         job_id=job_id,
         accepted_image_ids=accepted_image_ids,
+        progress=progress,
     )

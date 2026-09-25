@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import os
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import tifffile
@@ -170,7 +171,9 @@ def run_preprocess_from_input(
     job_output_dir: Path,
     job_temp_dir: Path,
     job_id: str,
+    progress: Callable[[int, int], None] | None = None,
 ) -> tuple[list[dict[str, object]], dict[str, object], Path]:
+    """progress(done, total) se llama al empezar y después de cada imagen."""
     input_path = Path(input_path)
     job_output_dir = Path(job_output_dir)
     job_temp_dir = Path(job_temp_dir)
@@ -185,6 +188,9 @@ def run_preprocess_from_input(
 
     preview_items: list[dict[str, object]] = []
     csv_rows: list[dict[str, object]] = []
+
+    if progress:
+        progress(0, len(images))
 
     for i, img_path in enumerate(images, start=1):
         img_id = f"{i:04d}"
@@ -233,6 +239,8 @@ def run_preprocess_from_input(
                 "metrics": metrics,
             }
         )
+        if progress:
+            progress(len(preview_items), len(images))
 
     accepted = sum(1 for row in csv_rows if row["estado"] == "usable")
     rejected = len(csv_rows) - accepted
@@ -252,7 +260,10 @@ def run_preprocess_from_input(
     return preview_items, summary, report_path
 
 
-def run_preprocess(job_id: str) -> tuple[list[dict[str, object]], dict[str, object], Path]:
+def run_preprocess(
+    job_id: str,
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[list[dict[str, object]], dict[str, object], Path]:
     job_upload_dir = settings.uploads_dir / job_id
     job_output_dir = settings.outputs_dir / job_id
     job_temp_dir = settings.temp_dir / job_id
@@ -267,4 +278,5 @@ def run_preprocess(job_id: str) -> tuple[list[dict[str, object]], dict[str, obje
         job_output_dir=job_output_dir,
         job_temp_dir=job_temp_dir,
         job_id=job_id,
+        progress=progress,
     )
