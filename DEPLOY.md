@@ -35,13 +35,13 @@ The paths below are the defaults these files use. If you change them, change the
 
 ## 2. How the app behaves (relevant to deployment)
 
-- **FastAPI + uvicorn**, single process. `app/main.py` loads `app/templates` and `app/static` by **relative path**, so the working directory must be the repo root.
+- **FastAPI + uvicorn**, single process.
 - **Models are cached per process** (Cellpose on PyTorch/GPU; StarDist on TensorFlow CPU). Run **1 worker**. Each extra worker would load another copy of the models, onto the GPU when there is one.
 - **Model weights download on first use**: Cellpose to `~/.cellpose` (overridable with `CELLPOSE_LOCAL_MODELS_PATH`), StarDist to `~/.keras`. The service user needs a writable `$HOME`.
 - **Storage** is set with env vars (`app/core/config.py`): `DATA_DIR`, `UPLOADS_DIR`, `OUTPUTS_DIR`, `TEMP_DIR`. Per job the app writes `uploads/<uuid>/`, `outputs/<uuid>/` (previews, CSVs, a results ZIP) and `temp/<uuid>/` (ZIPs are extracted here). **Nothing is ever cleaned up.**
 - **Uploads pass through `$TMPDIR` first.** Starlette spools the multipart body to a temp file before the app copies it to `uploads/`. On many servers `/tmp` sits on a small root filesystem, so point `TMPDIR` at the data volume.
-- **Processing is synchronous inside the HTTP request** (`POST /process/{job_id}`). A large batch keeps the request open for as long as the processing takes.
-- `MAX_UPLOAD_MB` is declared but **not enforced**.
+- **Processing is synchronous inside the HTTP request** (`POST /process/{job_id}`), and **one job runs at a time**: other users' jobs wait their turn in their own open request. A large batch keeps the request open for as long as the processing takes (see [IMPROVE.md](IMPROVE.md)).
+- `MAX_UPLOAD_MB` limits each uploaded file (HTTP 413 above it; `0` = no limit). The app default is 500 MB; `deploy/parasight.env.example` raises it to 20 GB for image batches.
 - **No authentication.** Anyone who can reach the port can upload images and download a job's results if they know its UUID.
 
 ## 3. Layout
@@ -171,7 +171,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8010/   # expect 200 (
 
 Key points of the unit (`deploy/parasight.service`):
 - `RequiresMountsFor=/srv/parasight`: won't start before the data volume is mounted.
-- `WorkingDirectory=/opt/parasight-AMA`: required by the relative template paths.
+- `WorkingDirectory=/opt/parasight-AMA`: the repository root.
 - `--workers 1`: one copy of the models in memory/GPU.
 - `Restart=on-failure`, `UMask=0027`, plus sandboxing: `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true`, and write access only to `/srv/parasight`. `PrivateDevices` is deliberately left off because it would hide `/dev/nvidia*`.
 
@@ -251,12 +251,10 @@ Then use the new path in the `useradd`/`mkdir`/`conda` commands above and in the
 
 ## 9. Known limitations
 
-1. **`MAX_UPLOAD_MB` is not enforced.** Uploads of any size are accepted, so set a limit at the proxy if needed.
-2. **Uploaded filenames are used as-is** for the saved path.
+1. **Upload limit applies after spooling.** `MAX_UPLOAD_MB` is checked while the file is saved, but the whole body has already been spooled to `$TMPDIR`. To stop oversized uploads earlier, cap them at a reverse proxy (`client_max_body_size`).
+2. **Synchronous processing:** long batches hold the HTTP connection, and a timeout or service restart loses the result page. The output files stay on disk.
 3. **No authentication.** Job UUIDs are the only thing protecting results. Use firewall rules or proxy auth (section 6).
-4. **Synchronous processing:** long batches hold the HTTP connection, and a timeout or service restart loses the result page. The output files stay on disk.
-5. **Templates/static use relative paths,** so `WorkingDirectory` must be the repo root.
-6. `app/core/config.py` reads environment variables only, not a `.env` file. Under systemd this is handled by `EnvironmentFile=`.
+4. `app/core/config.py` reads environment variables only, not a `.env` file. Under systemd this is handled by `EnvironmentFile=`.
 
 ## 10. Quick reference
 

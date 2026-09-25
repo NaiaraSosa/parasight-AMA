@@ -1,10 +1,12 @@
 from __future__ import annotations
+import threading
 import numpy as np
 from cellpose import models, io as cellpose_io
 
 cellpose_io.logger_setup()  # configura logging para Cellpose
 
 _MODEL = None
+_MODEL_LOCK = threading.Lock()
 
 def _get_cellpose_model():
     """
@@ -18,7 +20,9 @@ def _get_cellpose_model():
     """
     global _MODEL
     if _MODEL is None:
-        _MODEL = models.CellposeModel(gpu=True)
+        with _MODEL_LOCK:
+            if _MODEL is None:
+                _MODEL = models.CellposeModel(gpu=True)
     return _MODEL
 
 

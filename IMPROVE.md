@@ -1,6 +1,20 @@
 # Improvements: concurrency and robustness
 
-An analysis of how the web app behaves with several users at once (2–3), with fixes in priority order. It comes from reading the code and has not been load-tested yet (see [Verification](#verification)). Deployment itself is covered in [DEPLOY.md](DEPLOY.md).
+An analysis of how the web app behaves with several users at once (2–3), with fixes in priority order. It started from reading the code; the results of testing the fixes are in [Verification](#verification). Deployment itself is covered in [DEPLOY.md](DEPLOY.md).
+
+## Status
+
+| Fix | State |
+|---|---|
+| 1. Non-blocking upload (+ `MAX_UPLOAD_MB` enforced, filename sanitized, format checked) | **Done** |
+| 2. One job at a time (`PIPELINE_LOCK`) | **Done** |
+| 3. Reject duplicate runs of the same job (409) | **Done** |
+| 4. Thread-safe histograms (no pyplot) and model loading | **Done** (models still load on first use) |
+| 5. Background jobs + status page | To do |
+| 6. Template paths relative to the code | **Done** (authentication: to do) |
+| 7. Speed up `compute_metrics` | To do (new, see problem 8) |
+
+Also done: job IDs in URLs must be UUIDs (404 otherwise), so values like `..` can't reach the filesystem.
 
 ## Summary
 
@@ -55,6 +69,19 @@ Users wait on an open request for the whole job, with no progress indication. A 
 ### 7. Disk use grows with concurrent jobs (operational)
 
 While a job runs it needs about **3× its upload size**: the spooled upload in `$TMPDIR`, the saved copy in `uploads/`, the unzipped copy in `temp/`, then outputs. With 3 users uploading large batches at once, the server needs about 9× the largest batch free. Nothing is cleaned up automatically (see the cleanup job in DEPLOY.md).
+
+### 8. `compute_metrics` dominates the time per image (performance)
+
+Measured on the test images (1080×1920, NVIDIA L4), per image:
+
+| Step | Time |
+|---|---|
+| Cellpose (GPU) | ~3.5 s |
+| StarDist (CPU) | ~1 s |
+| Filters / merge | ~0.2 s |
+| **`compute_metrics`** (parasite→cell assignment, clustering) | **~12–14 s** |
+
+About 70% of the time goes to single-threaded Python loops in `app/pipeline/postprocess.py` / `metrics.py`, not to the models. Vectorizing the assignment (e.g. computing distances/overlaps for all parasites at once with numpy/scipy instead of per parasite) is the biggest available speedup, far more than any server change.
 
 ### Other issues (not about concurrency)
 
@@ -166,9 +193,24 @@ Keep `--workers 1`. Only once there are many users, or several GPUs, is it worth
 
 ## Verification
 
-This analysis has not been load-tested yet. A simple test once the fixes are in:
+Fixes 1–4 and 6 were tested on a dev instance (single uvicorn worker, NVIDIA L4) with the images in `test-imgs/`.
+
+| Test | Before | After |
+|---|---|---|
+| `GET /` latency while a 3 GB file is uploaded | median 3 ms, **max 3.4 s** (event loop blocked during the copy) | median 3 ms, **max 18 ms** |
+| Two 8-image jobs submitted 2 s apart | ran in parallel threads | second job waits; both return 200 with correct results |
+| Same job submitted again while running or queued | second pipeline on the same folder | **409** immediately |
+| Page loads while jobs run | — | 2–13 ms |
+| Upload over `MAX_UPLOAD_MB` | accepted | **413**, partial files removed |
+| Filename `../../evil.tiff` / `C:\x\win.tiff` | used as given | saved as `evil.tiff` / `win.tiff` inside the job folder |
+| Upload of `README.md` | accepted, failed later at processing | **400** unsupported format |
+| Job ID `..` / `%2e%2e` / not a UUID | used in paths | **404** |
+
+Histograms from the new Figure-based code were checked visually and render correctly.
+
+To repeat under real load:
 1. Start the service. In one terminal run `watch -n1 nvidia-smi`; in another, `sudo journalctl -u parasight -f`.
 2. From 3 browsers (or scripts using `curl -F file=@batch.zip`), upload the test images and start processing at the same time.
 3. While they run, load `/` and a preview URL from a fourth browser. It should respond right away.
-4. Record: peak GPU memory, time per job, total time, and whether any errors appear in the log. Repeat with a large ZIP upload in progress to confirm Fix 1.
-5. Refresh a processing page mid-job and confirm you get a 409 (after Fix 3) or the status page (after Fix 5), not a second run.
+4. Record peak GPU memory, time per job and any errors in the log.
+5. Refresh a processing page mid-job: you should get a 409 (or, after Fix 5, the status page), not a second run.

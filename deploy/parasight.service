@@ -17,8 +17,7 @@ User=parasight
 Group=parasight
 EnvironmentFile=/etc/parasight/parasight.env
 
-# app/main.py loads templates/static from the relative path "app/...",
-# so the working directory must be the repository root.
+# The repository root (templates/static are found relative to the code).
 WorkingDirectory=/opt/parasight-AMA
 
 # Single worker on purpose: the Cellpose/StarDist models are cached per

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable
-import matplotlib
-matplotlib.use("Agg", force=True)
-import matplotlib.pyplot as plt
+# Figure directamente (sin pyplot): pyplot usa estado global y no es thread-safe.
+from matplotlib.figure import Figure
 from matplotlib.ticker import MaxNLocator
 import numpy as np
 
@@ -17,7 +16,8 @@ def save_histogram(
 ) -> None:
     values = [int(value) for value in parasites_per_cell if int(value) >= 0]
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4), dpi=140)
+    fig = Figure(figsize=(11, 4), dpi=140)
+    axes = fig.subplots(1, 2)
     fig.patch.set_facecolor("white")
 
     def style_axis(ax):
@@ -87,4 +87,3 @@ def save_histogram(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, format="png", bbox_inches="tight", facecolor="white")
-    plt.close(fig)

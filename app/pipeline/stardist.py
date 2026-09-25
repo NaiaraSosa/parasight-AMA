@@ -1,9 +1,11 @@
 from __future__ import annotations
+import threading
 import numpy as np
 from csbdeep.data import PercentileNormalizer
 from stardist.models import StarDist2D
 
 _MODEL = None
+_MODEL_LOCK = threading.Lock()
 _MODEL_NAME = "2D_versatile_fluo"
 
 def _get_stardist_model(model_name: str = _MODEL_NAME):
@@ -19,7 +21,9 @@ def _get_stardist_model(model_name: str = _MODEL_NAME):
     """
     global _MODEL
     if _MODEL is None:
-        _MODEL = StarDist2D.from_pretrained(model_name)
+        with _MODEL_LOCK:
+            if _MODEL is None:
+                _MODEL = StarDist2D.from_pretrained(model_name)
     return _MODEL
 
 

@@ -13,6 +13,7 @@ class Settings(BaseModel):
     outputs_dir: Path = Path(os.getenv("OUTPUTS_DIR", "./data/outputs"))
     temp_dir: Path = Path(os.getenv("TEMP_DIR", "./data/temp"))
 
+    # Tamaño máximo por archivo subido en la webapp; 0 = sin límite.
     max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "500"))
 
 
