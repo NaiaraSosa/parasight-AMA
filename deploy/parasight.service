@@ -1,0 +1,51 @@
+# systemd unit for the Parasight-AMA web app.
+# Install: sudo cp deploy/parasight.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now parasight
+# See DEPLOY.md for the paths assumed below.
+
+[Unit]
+Description=Parasight-AMA web app (FastAPI/uvicorn)
+Documentation=file:///opt/parasight-AMA/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+# Don't start until the data volume is mounted.
+RequiresMountsFor=/srv/parasight
+
+[Service]
+Type=simple
+User=parasight
+Group=parasight
+EnvironmentFile=/etc/parasight/parasight.env
+
+# app/main.py loads templates/static from the relative path "app/...",
+# so the working directory must be the repository root.
+WorkingDirectory=/opt/parasight-AMA
+
+# Single worker on purpose: the Cellpose/StarDist models are cached per
+# process, and every extra worker would load another copy onto the GPU.
+ExecStart=/srv/parasight/env/bin/uvicorn app.main:app \
+    --host ${APP_HOST} --port ${APP_PORT} \
+    --workers 1 --no-server-header --log-level info
+
+Restart=on-failure
+RestartSec=5
+# First start downloads model weights; give it time.
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+# Files written by the service are group-readable (so a shared group can read results).
+UMask=0027
+
+# --- Hardening (GPU needs /dev/nvidia*, so no PrivateDevices) ---
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/parasight
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=parasight
+
+[Install]
+WantedBy=multi-user.target

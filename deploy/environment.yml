@@ -1,0 +1,17 @@
+# Conda environment for deploying Parasight-AMA.
+# Create it on a large volume (this env is ~7-8 GB):
+#   conda env create -p /srv/parasight/env -f deploy/environment.yml
+# Run from the repository root: the "-e .." line installs this repo (paths are
+# relative to this file) with the dependencies declared in pyproject.toml.
+name: parasight
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      # PyTorch CUDA 12.8 build for Cellpose on the GPU (host driver must be >= 570).
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch
+      - torchvision
+      - -e ..
