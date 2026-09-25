@@ -167,7 +167,7 @@ Keep `--workers 1`. Only once there are many users, or several GPUs, is it worth
 ## Verification
 
 This analysis has not been load-tested yet. A simple test once the fixes are in:
-1. Start the service. In one terminal run `watch -n1 nvidia-smi`; in another, `journalctl -u parasight -f`.
+1. Start the service. In one terminal run `watch -n1 nvidia-smi`; in another, `sudo journalctl -u parasight -f`.
 2. From 3 browsers (or scripts using `curl -F file=@batch.zip`), upload the test images and start processing at the same time.
 3. While they run, load `/` and a preview URL from a fourth browser. It should respond right away.
 4. Record: peak GPU memory, time per job, total time, and whether any errors appear in the log. Repeat with a large ZIP upload in progress to confirm Fix 1.

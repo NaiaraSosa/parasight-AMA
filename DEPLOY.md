@@ -6,7 +6,7 @@ Supporting files live in [`deploy/`](deploy/):
 
 | File | Purpose |
 |---|---|
-| `deploy/environment.yml` | Conda env: Python 3.10, PyTorch CUDA 12.8, this repo (plus the `pyproject.toml` deps) |
+| `deploy/environment.yml` | Conda env: Python 3.10, PyTorch (CUDA), this repo (plus the `pyproject.toml` deps) |
 | `deploy/parasight.env.example` | Runtime config: port, data paths, model caches, TMPDIR |
 | `deploy/parasight.service` | systemd unit that starts the app on boot and restarts it on failure |
 | `deploy/parasight-cleanup.sh` | Deletes old jobs (the app never deletes anything) |
@@ -26,7 +26,7 @@ The paths below are the defaults these files use. If you change them, change the
 
 - Linux with systemd (tested on Ubuntu 22.04).
 - Conda / Miniforge.
-- Optional: an NVIDIA GPU with driver ≥ 570 for PyTorch `cu128`. Without one, Cellpose falls back to the CPU, which is much slower.
+- Optional: an NVIDIA GPU. The PyTorch wheels from PyPI bundle CUDA 13.x and need driver ≥ 580; for older drivers see the comment in `deploy/environment.yml`. Without one, Cellpose falls back to the CPU, which is much slower.
 - Disk space:
   - ~8 GB for the conda env (PyTorch + TensorFlow)
   - ~0.5 GB for model weights
@@ -109,7 +109,7 @@ Always create the env from **`/opt/parasight-AMA`**. It is an editable install (
 
 ```bash
 cd /opt/parasight-AMA
-sudo conda env create -p /srv/parasight/env -f deploy/environment.yml
+sudo PYTHONNOUSERSITE=1 conda env create -p /srv/parasight/env -f deploy/environment.yml
 sudo chmod -R a+rX /srv/parasight/env      # readable by the service, writable only by root
 
 # Sanity checks
@@ -118,7 +118,11 @@ sudo chmod -R a+rX /srv/parasight/env      # readable by the service, writable o
 ```
 
 Expected: `numpy 1.26.x` (must be < 2 for TF 2.15/StarDist), `tf 2.15.x`, and `cuda True` if a GPU is present.
-Without a GPU, you can drop the `--extra-index-url .../cu128` line in `environment.yml` and use the CPU build of PyTorch instead.
+`PYTHONNOUSERSITE=1` stops pip from treating packages in *your* `~/.local/lib/python3.10/site-packages` as already installed. Without it, pip skips them, the env only works for you, and the service fails with errors like `No module named 'dateutil'`.
+
+Check that nothing is missing: `PYTHONNOUSERSITE=1 /srv/parasight/env/bin/python -m pip check` should print `No broken requirements found.`
+
+Without a GPU, you can install the CPU build of PyTorch instead (`--index-url https://download.pytorch.org/whl/cpu`).
 
 Optionally, pin what works: `/srv/parasight/env/bin/pip freeze > requirements.lock.txt`.
 
@@ -161,8 +165,8 @@ sudo cp /opt/parasight-AMA/deploy/parasight.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now parasight      # enable = start at boot, --now = start now
 systemctl status parasight
-journalctl -u parasight -f                 # logs
-curl -sI http://127.0.0.1:8010/ | head -1  # expect HTTP/1.1 200 OK
+sudo journalctl -u parasight -f                 # logs
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8010/   # expect 200 (not curl -I: HEAD gets 405)
 ```
 
 Key points of the unit (`deploy/parasight.service`):
@@ -176,7 +180,7 @@ Key points of the unit (`deploy/parasight.service`):
 ```bash
 cd /opt/parasight-AMA && sudo git pull
 # only if pyproject.toml deps changed:
-#   sudo /srv/parasight/env/bin/pip install -e .
+#   sudo PYTHONNOUSERSITE=1 /srv/parasight/env/bin/pip install -e .
 sudo systemctl restart parasight
 ```
 
@@ -264,5 +268,5 @@ Then use the new path in the `useradd`/`mkdir`/`conda` commands above and in the
 | Data | `/srv/parasight/data/{uploads,outputs,temp,tmp}` |
 | Config | `/etc/parasight/parasight.env` |
 | Service | `sudo systemctl {status,restart,stop} parasight` |
-| Logs | `journalctl -u parasight -f` |
+| Logs | `sudo journalctl -u parasight -f` |
 | Cleanup | `parasight` user's crontab → `deploy/parasight-cleanup.sh` |
