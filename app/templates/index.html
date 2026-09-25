@@ -15,12 +15,110 @@
           Soporta <code>.tif</code>, <code>.tiff</code>, <code>.czi</code> o un <code>.zip</code> con imágenes.
         </p>
 
-        <form action="/upload" method="post" enctype="multipart/form-data" class="stack">
-          <label for="file" class="file-label">Seleccionar archivo</label>
-          <input id="file" type="file" name="file" required />
-          <button type="submit" class="btn btn-primary">Subir archivo</button>
+        <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data" class="stack">
+          <label for="file" id="dropzone" class="dropzone">
+            <input id="file" type="file" name="file" accept=".tif,.tiff,.czi,.zip" class="dropzone-input" />
+            <span class="dropzone-title">Arrastrá el archivo acá</span>
+            <span class="dropzone-sub">o hacé clic para elegirlo</span>
+            <span id="dropzone-file" class="dropzone-file" hidden></span>
+          </label>
+          <p id="upload-error" class="error-text" role="alert" hidden></p>
+          <button id="upload-btn" type="submit" class="btn btn-primary">Subir archivo</button>
         </form>
       </section>
     </main>
+    <script>
+      (() => {
+        const ALLOWED = [".tif", ".tiff", ".czi", ".zip"];
+        const form = document.getElementById("upload-form");
+        const input = document.getElementById("file");
+        const zone = document.getElementById("dropzone");
+        const fileLabel = document.getElementById("dropzone-file");
+        const errorEl = document.getElementById("upload-error");
+        const button = document.getElementById("upload-btn");
+
+        function formatSize(bytes) {
+          const units = ["B", "KB", "MB", "GB", "TB"];
+          let i = 0;
+          while (bytes >= 1024 && i < units.length - 1) {
+            bytes /= 1024;
+            i++;
+          }
+          return `${bytes.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+        }
+
+        function showError(message) {
+          errorEl.textContent = message;
+          errorEl.hidden = !message;
+        }
+
+        function validate(files) {
+          if (!files || files.length === 0) return "Elegí un archivo para subir.";
+          if (files.length > 1) return "Soltá un solo archivo. Para varias imágenes, subí un .zip.";
+          const name = files[0].name.toLowerCase();
+          if (!ALLOWED.some((ext) => name.endsWith(ext))) {
+            return "Formato no soportado. Subí un .tif, .tiff, .czi o .zip.";
+          }
+          return "";
+        }
+
+        function refresh() {
+          const file = input.files && input.files[0];
+          zone.classList.toggle("has-file", Boolean(file));
+          fileLabel.hidden = !file;
+          fileLabel.textContent = file ? `${file.name} · ${formatSize(file.size)}` : "";
+        }
+
+        input.addEventListener("change", () => {
+          // Cancelar el diálogo deja la lista vacía: no es un error.
+          const error = input.files.length ? validate(input.files) : "";
+          showError(error);
+          if (error) input.value = "";
+          refresh();
+        });
+
+        // Soltar en cualquier parte de la página; sin esto el navegador abre el archivo.
+        let depth = 0;
+        window.addEventListener("dragenter", (e) => {
+          e.preventDefault();
+          depth++;
+          zone.classList.add("is-dragover");
+        });
+        window.addEventListener("dragleave", () => {
+          depth = Math.max(0, depth - 1);
+          if (depth === 0) zone.classList.remove("is-dragover");
+        });
+        window.addEventListener("dragover", (e) => e.preventDefault());
+        window.addEventListener("drop", (e) => {
+          e.preventDefault();
+          depth = 0;
+          zone.classList.remove("is-dragover");
+          const files = e.dataTransfer && e.dataTransfer.files;
+          const error = validate(files);
+          showError(error);
+          if (!error) input.files = files;
+          refresh();
+        });
+
+        form.addEventListener("submit", (e) => {
+          const error = validate(input.files);
+          if (error) {
+            e.preventDefault();
+            showError(error);
+            return;
+          }
+          // Evita un segundo envío (y un segundo job) mientras sube un archivo grande.
+          button.disabled = true;
+          button.textContent = "Subiendo…";
+        });
+
+        // Al volver con "Atrás" el navegador puede restaurar la página con el botón deshabilitado.
+        window.addEventListener("pageshow", () => {
+          button.disabled = false;
+          button.textContent = "Subir archivo";
+          refresh();
+        });
+      })();
+    </script>
   </body>
 </html>

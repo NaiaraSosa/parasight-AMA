@@ -75,6 +75,62 @@ input[type="file"] {
   color: var(--muted);
 }
 
+.dropzone {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  text-align: center;
+  padding: 30px 16px;
+  border: 2px dashed #3a4561;
+  border-radius: 12px;
+  background: #101422;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropzone:hover,
+.dropzone.is-dragover {
+  border-color: var(--accent);
+  background: #131a2c;
+}
+
+.dropzone:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dropzone.has-file {
+  border-style: solid;
+}
+
+.dropzone-title {
+  font-weight: 600;
+}
+
+.dropzone-sub {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.dropzone-file {
+  margin-top: 8px;
+  max-width: 100%;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+/* Oculto a la vista pero accesible con teclado y lectores de pantalla. */
+.dropzone-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
 .btn {
   display: inline-flex;
   justify-content: center;
