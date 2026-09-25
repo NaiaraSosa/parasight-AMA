@@ -91,7 +91,7 @@ sudo mkdir -p \
   "$P/data/temp" \
   "$P/data/tmp"
 sudo chown -R parasight:parasight /srv/parasight
-sudo chmod 2750 /srv/parasight /srv/parasight/data    # setgid: new files keep the group
+sudo chmod 2750 /srv/parasight /srv/parasight/data /srv/parasight/data/*   # setgid: new files keep the group
 ```
 
 To let a group of people read results directly from disk, add the service user to that group (`sudo usermod -aG <group> parasight`) and `chgrp -R <group> /srv/parasight/data`.

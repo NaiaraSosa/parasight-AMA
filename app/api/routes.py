@@ -37,7 +37,7 @@ def _check_job_id(job_id: str) -> None:
 # def (no async): la copia del archivo es bloqueante y corre en el threadpool,
 # así no congela el event loop para los demás usuarios.
 @router.post("/upload")
-def upload_file(request: Request, file: UploadFile = File(...)):
+def upload_file(file: UploadFile = File(...)):
     # Solo el nombre base: descarta directorios o "../" que envíe el cliente.
     filename = Path((file.filename or "").replace("\\", "/")).name
     if not filename or filename in {".", ".."}:
@@ -69,14 +69,9 @@ def upload_file(request: Request, file: UploadFile = File(...)):
             detail=f"El archivo supera el máximo permitido ({settings.max_upload_mb} MB).",
         )
 
-    return templates.TemplateResponse(
-        request,
-        "upload.html",
-        {
-            "job_id": job_id,
-            "filename": filename,
-        },
-    )
+    # Redirigir a la página del job: la URL queda como enlace permanente y
+    # recargar no vuelve a subir el archivo.
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
 
 def _enqueue(job_id: str, kind: str) -> RedirectResponse:
@@ -103,9 +98,21 @@ def preprocess_job(job_id: str):
     return _enqueue(job_id, "preprocess")
 
 
+def _uploaded_filename(job_id: str) -> str | None:
+    upload_dir = settings.uploads_dir / job_id
+    if not upload_dir.is_dir():
+        return None
+    files = sorted(p.name for p in upload_dir.iterdir() if p.is_file())
+    return files[0] if files else None
+
+
 def _status_payload(job_id: str) -> dict:
     status = read_status(job_id)
     if status is None:
+        # Subido pero todavía no enviado a procesar.
+        if _uploaded_filename(job_id) is not None:
+            return {"job_id": job_id, "kind": None, "state": "uploaded", "done": 0,
+                    "total": None, "jobs_ahead": None, "error": None}
         raise HTTPException(status_code=404, detail="Job no encontrado.")
     return {
         "job_id": job_id,
@@ -128,6 +135,12 @@ def job_status(job_id: str):
 def job_page(request: Request, job_id: str):
     _check_job_id(job_id)
     status = _status_payload(job_id)
+    if status["state"] == "uploaded":
+        return templates.TemplateResponse(
+            request,
+            "upload.html",
+            {"job_id": job_id, "filename": _uploaded_filename(job_id)},
+        )
     result = read_result(job_id) if status["state"] == "done" else None
 
     if result is None:
