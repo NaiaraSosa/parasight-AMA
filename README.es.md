@@ -132,10 +132,10 @@ app/
 data/
   uploads/     # Archivos subidos por job
   outputs/     # Resultados exportados por job
-  temp/        # Temporales de procesamiento
+  processing/  # Archivos de trabajo de los jobs en curso (se borran al terminar cada job)
 ```
 
-La carpeta `data/` no se guarda en Git intencionalmente. La webapp crea `data/uploads`, `data/outputs` y `data/temp` automaticamente cuando arranca. La CLI tambien crea las carpetas de salida y temporales que necesita para cada ejecucion.
+La carpeta `data/` no se guarda en Git intencionalmente. La webapp crea `data/uploads`, `data/outputs` y `data/processing` automaticamente cuando arranca, cada una con un `README.txt` que explica qué contiene. La CLI tambien crea las carpetas de salida y temporales que necesita para cada ejecucion.
 
 ## Flujo actual de procesamiento
 

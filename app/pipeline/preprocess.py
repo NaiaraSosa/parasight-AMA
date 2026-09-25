@@ -266,7 +266,7 @@ def run_preprocess(
 ) -> tuple[list[dict[str, object]], dict[str, object], Path]:
     job_upload_dir = settings.uploads_dir / job_id
     job_output_dir = settings.outputs_dir / job_id
-    job_temp_dir = settings.temp_dir / job_id
+    job_temp_dir = settings.processing_dir / job_id
 
     uploaded_files = [p for p in job_upload_dir.iterdir() if p.is_file()]
     if not uploaded_files:

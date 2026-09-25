@@ -38,8 +38,8 @@ The paths below are the defaults these files use. If you change them, change the
 - **FastAPI + uvicorn**, single process.
 - **Models are cached per process** (Cellpose on PyTorch/GPU; StarDist on TensorFlow CPU). Run **1 worker**. Each extra worker would load another copy of the models, onto the GPU when there is one.
 - **Model weights download on first use**: Cellpose to `~/.cellpose` (overridable with `CELLPOSE_LOCAL_MODELS_PATH`), StarDist to `~/.keras`. The service user needs a writable `$HOME`.
-- **Storage** is set with env vars (`app/core/config.py`): `DATA_DIR`, `UPLOADS_DIR`, `OUTPUTS_DIR`, `TEMP_DIR`. Per job the app writes `uploads/<uuid>/`, `outputs/<uuid>/` (previews, CSVs, a results ZIP) and `temp/<uuid>/` (ZIPs are extracted here). **Nothing is ever cleaned up.**
-- **Uploads pass through `$TMPDIR` first.** Starlette spools the multipart body to a temp file before the app copies it to `uploads/`. On many servers `/tmp` sits on a small root filesystem, so point `TMPDIR` at the data volume.
+- **Storage** is set with env vars (`app/core/config.py`): `DATA_DIR`, `UPLOADS_DIR`, `OUTPUTS_DIR`, `PROCESSING_DIR` (formerly `TEMP_DIR`, still accepted). Per job the app writes `uploads/<uuid>/` (the original file), `outputs/<uuid>/` (previews, CSVs, a results ZIP) and, while the job runs, `processing/<uuid>/` (ZIPs are extracted here; deleted when the job ends). Uploads and outputs are never deleted by the app; see section 7. At startup the app writes a `README.txt` into each of these folders saying what it holds and whether it is safe to delete.
+- **The service's `$TMPDIR` holds scratch files, not job data.** Starlette spools each upload there before the app copies it to `uploads/`, and TensorFlow/PyTorch keep temp files there. On many servers `/tmp` sits on a small root filesystem, so point `TMPDIR` at the large volume (`/srv/parasight/tmp`).
 - **Jobs run in the background, one at a time.** Submitting a job queues it and redirects to `/jobs/{job_id}`, a status page that shows the queue position or progress and then the results. Users can close the tab and come back to that link. Each job's state is kept in `outputs/<uuid>/status.json` and `result.json`.
 - `MAX_UPLOAD_MB` limits each uploaded file (HTTP 413 above it; `0` = no limit). The app default is 500 MB; `deploy/parasight.env.example` raises it to 20 GB for image batches.
 - **No authentication.** Anyone who can reach the port can upload images and download a job's results if they know its UUID.
@@ -57,19 +57,22 @@ The paths below are the defaults these files use. If you change them, change the
 │   ├── cellpose/                   Cellpose weights
 │   └── matplotlib/
 ├── .keras/                         StarDist weights (created automatically)
-└── data/                           <- all user data; can be moved/backed up on its own
-    ├── uploads/<job-uuid>/         raw .tiff/.czi/.zip as uploaded
-    ├── outputs/<job-uuid>/         results, previews, results_<uuid>.zip
-    ├── temp/<job-uuid>/            unzipped inputs during processing
-    └── tmp/                        $TMPDIR: spooled HTTP uploads
+├── tmp/                            $TMPDIR: service scratch (uploads in transit, TF/PyTorch
+│                                   temp files); safe to empty when idle
+└── data/                           <- per-job data only; can be moved/backed up on its own
+    ├── uploads/<job-uuid>/         original .tiff/.czi/.zip as uploaded       KEEP
+    ├── outputs/<job-uuid>/         results, previews, results_<uuid>.zip      KEEP
+    └── processing/<job-uuid>/      unzipped inputs while the job runs; deleted when it ends
 ```
+
+Each folder under `data/` gets a `README.txt` from the app, so someone looking only at the disk can tell what may be deleted. Old jobs should be removed with `deploy/parasight-cleanup.sh` (section 7), which deletes a job's `uploads/` and `outputs/` folders together.
 
 Why this layout:
 - **Code and data are separate.** `git pull` never touches data, and the data directory can be backed up, resized or moved on its own.
 - **Large files stay off the root filesystem.** A big upload can't fill `/` and take the host down.
 - A **dedicated system user** owns the data and runs the process, isolated from other apps and other users' homes.
 
-Mount a large disk at `/srv/parasight`, or make it a symlink/bind mount to one. You can also split the data: keep `uploads/` and `outputs/` on persistent, backed-up storage and put `TEMP_DIR`/`TMPDIR` on fast local scratch. In that case add the scratch path to `ReadWritePaths=` in the unit.
+Mount a large disk at `/srv/parasight`, or make it a symlink/bind mount to one. You can also split the data: keep `uploads/` and `outputs/` on persistent, backed-up storage and put `PROCESSING_DIR`/`TMPDIR` on fast local scratch. In that case add the scratch path to `ReadWritePaths=` in the unit.
 
 ## 4. Installation
 
@@ -88,8 +91,8 @@ sudo mkdir -p \
   "$P/cache/matplotlib" \
   "$P/data/uploads" \
   "$P/data/outputs" \
-  "$P/data/temp" \
-  "$P/data/tmp"
+  "$P/data/processing" \
+  "$P/tmp"
 sudo chown -R parasight:parasight /srv/parasight
 sudo chmod 2750 /srv/parasight /srv/parasight/data /srv/parasight/data/*   # setgid: new files keep the group
 ```
@@ -226,8 +229,8 @@ Alternatives:
 
 ## 7. Storage management
 
-- Disk use per job ≈ upload (`uploads/`) + extracted copy for ZIPs (`temp/`) + outputs + transient spool in `tmp/`.
-- Nothing is deleted automatically. Install the cleanup job, which deletes temporaries after 2 days and jobs after 30 (adjust the number):
+- Disk use per job ≈ upload (`uploads/`) + outputs, plus, while it runs, the spooled upload in `tmp/` and the extracted copy of a ZIP in `processing/`.
+- The app deletes `processing/<job>` when a job ends, but never deletes uploads or outputs. Install the cleanup job, which deletes jobs (their `uploads/` and `outputs/` folders) after 30 days (adjust the number), plus anything left in `processing/` or `tmp/` for more than 2 days:
 
 ```bash
 ( sudo -u parasight crontab -l 2>/dev/null; \
@@ -235,7 +238,8 @@ Alternatives:
   | sudo -u parasight crontab -
 ```
 
-- Monitor it with `du -sh /srv/parasight/data/*`.
+- Monitor it with `du -sh /srv/parasight/data/* /srv/parasight/tmp`.
+- The script finds `tmp/` next to `data/` (override with `TMP_DIR=...`). It still cleans the old `data/temp` and `data/tmp` if they exist.
 - If results must be kept, back up `data/outputs/`. Users already have their own copies of `uploads/`.
 
 ## 8. Customizing paths
@@ -263,7 +267,7 @@ Then use the new path in the `useradd`/`mkdir`/`conda` commands above and in the
 | URL | `http://<server>:8010` |
 | Code | `/opt/parasight-AMA` |
 | Env | `/srv/parasight/env` |
-| Data | `/srv/parasight/data/{uploads,outputs,temp,tmp}` |
+| Data | `/srv/parasight/data/{uploads,outputs,processing}`, scratch in `/srv/parasight/tmp` |
 | Config | `/etc/parasight/parasight.env` |
 | Service | `sudo systemctl {status,restart,stop} parasight` |
 | Logs | `sudo journalctl -u parasight -f` |

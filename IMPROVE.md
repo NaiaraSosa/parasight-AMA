@@ -36,7 +36,7 @@ The fixes are small. More uvicorn workers, gunicorn, or a Celery/Redis queue are
 | `POST /process/{job_id}`, `/process-accepted/{job_id}`, `/preprocess/{job_id}` | `def` | thread pool (~40 threads) |
 | `GET /preview/...`, `/download/...` | `def` | thread pool |
 
-With 3 users processing at once, 3 pipelines run **in parallel threads of the same process**, sharing the Cellpose and StarDist models, which are loaded once and kept in module-level variables (`app/pipeline/cellpose.py`, `app/pipeline/stardist.py`). Each job writes to its own `outputs/<uuid>/` and `temp/<uuid>/`, so **file writes from different jobs don't collide**.
+With 3 users processing at once, 3 pipelines run **in parallel threads of the same process**, sharing the Cellpose and StarDist models, which are loaded once and kept in module-level variables (`app/pipeline/cellpose.py`, `app/pipeline/stardist.py`). Each job writes to its own `outputs/<uuid>/` and `processing/<uuid>/` (formerly `temp/`), so **file writes from different jobs don't collide**.
 
 ## Problems
 
@@ -68,7 +68,7 @@ Users wait on an open request for the whole job, with no progress indication. A 
 
 ### 7. Disk use grows with concurrent jobs (operational)
 
-While a job runs it needs about **3× its upload size**: the spooled upload in `$TMPDIR`, the saved copy in `uploads/`, the unzipped copy in `temp/`, then outputs. With 3 users uploading large batches at once, the server needs about 9× the largest batch free. Nothing is cleaned up automatically (see the cleanup job in DEPLOY.md).
+While a job runs it needs about **3× its upload size**: the spooled upload in `$TMPDIR`, the saved copy in `uploads/`, the unzipped copy in `processing/` (formerly `temp/`), then outputs. With 3 users uploading large batches at once, the server needs about 9× the largest batch free. Since the folder rename, the app deletes `processing/<job>` when a job ends; uploads and outputs are removed by the cleanup job in DEPLOY.md.
 
 ### 8. `compute_metrics` dominates the time per image (performance)
 

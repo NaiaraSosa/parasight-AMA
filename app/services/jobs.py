@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import shutil
 import threading
 import uuid
 from collections import deque
@@ -212,6 +213,9 @@ def _worker_loop() -> None:
             logger.exception("Job %s failed", job_id)
             _update_status(job_id, state="failed", finished_at=_now(), error=str(exc) or type(exc).__name__)
         finally:
+            # Los archivos de trabajo (ZIP descomprimido, etc.) ya no sirven:
+            # reprocesar vuelve a descomprimir desde uploads/.
+            shutil.rmtree(settings.processing_dir / job_id, ignore_errors=True)
             with _cond:
                 _running_job = None
 

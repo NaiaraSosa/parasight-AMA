@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -30,6 +31,16 @@ app = typer.Typer(
 
 def _default_job_id() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _remove_job_temp(job_temp_dir: Path, default_location: bool) -> None:
+    """Borra los temporales del job (p. ej. el ZIP descomprimido) al terminar."""
+    shutil.rmtree(job_temp_dir, ignore_errors=True)
+    if default_location:
+        try:
+            job_temp_dir.parent.rmdir()  # <output>/.temp, solo si quedó vacío
+        except OSError:
+            pass
 
 
 def _validate_job_id(job_id: str) -> str:
@@ -114,6 +125,8 @@ def process_images(
     except Exception as exc:
         typer.secho(f"Error procesando imagenes: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
+    finally:
+        _remove_job_temp(job_temp_dir, default_location=temp_dir is None)
 
     typer.secho("Procesamiento terminado.", fg=typer.colors.GREEN)
     typer.echo(f"Job: {run_id}")
@@ -177,6 +190,8 @@ def preprocess_images(
     except Exception as exc:
         typer.secho(f"Error revisando calidad: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
+    finally:
+        _remove_job_temp(job_temp_dir, default_location=temp_dir is None)
 
     typer.secho("Control de calidad terminado.", fg=typer.colors.GREEN)
     typer.echo(f"Job: {run_id}")

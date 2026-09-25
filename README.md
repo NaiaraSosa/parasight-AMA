@@ -136,10 +136,10 @@ app/
 data/
   uploads/     # Files uploaded per job
   outputs/     # Results exported per job
-  temp/        # Processing temp files
+  processing/  # Working files of running jobs (deleted when each job ends)
 ```
 
-The `data/` directory is intentionally not tracked in Git. The web app creates `data/uploads`, `data/outputs`, and `data/temp` automatically when it starts. The CLI also creates the output and temporary folders it needs for each run.
+The `data/` directory is intentionally not tracked in Git. The web app creates `data/uploads`, `data/outputs`, and `data/processing` automatically when it starts, each with a `README.txt` explaining what it holds. The CLI also creates the output and temporary folders it needs for each run.
 
 ## Current processing workflow
 
