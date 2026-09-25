@@ -45,13 +45,11 @@
             {% if status.state == 'running' and status.total %}style="width: {{ (100 * status.done / status.total) | round | int }}%"{% endif %}
           ></div>
         </div>
-        <p class="muted job-hint">
-          Podés cerrar esta página y volver más tarde a este enlace para ver los resultados.
-        </p>
+        <p class="muted job-hint">Podés cerrar esta página: el procesamiento sigue en el servidor.</p>
         {% endif %}
 
         <div class="meta">
-          <p><span>Job ID</span> {{ status.job_id }}</p>
+          {% with job_id = status.job_id %}{% include "_job_link.html" %}{% endwith %}
         </div>
 
         <div class="actions">

@@ -1,0 +1,74 @@
+{# ID del job + enlace permanente, con botones para copiar. Requiere `job_id` en el contexto. #}
+<p class="job-ref">
+  <span>Job ID</span>
+  <code class="job-ref-value">{{ job_id }}</code>
+  <button type="button" class="btn-copy" data-copy-text="{{ job_id }}">Copiar ID</button>
+</p>
+<p class="job-ref">
+  <span>Enlace</span>
+  <a class="job-ref-value" id="job-link" href="/jobs/{{ job_id }}">/jobs/{{ job_id }}</a>
+  <button type="button" class="btn-copy" data-copy-link>Copiar enlace</button>
+</p>
+<p class="muted job-hint">Guardá este enlace (o agregalo a favoritos) para volver a ver el estado y los resultados.</p>
+<script>
+  (() => {
+    const link = document.getElementById("job-link");
+    link.textContent = link.href;  // URL completa, con el host con el que se abrió la página
+
+    function fallbackCopy(text) {
+      // navigator.clipboard solo existe en HTTPS o localhost; en http://<ip> se usa esto.
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (err) {
+        ok = false;
+      }
+      document.body.removeChild(area);
+      return ok;
+    }
+
+    function selectText(el) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    async function copy(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (err) {
+          // sigue con el método alternativo
+        }
+      }
+      return fallbackCopy(text);
+    }
+
+    document.querySelectorAll(".btn-copy").forEach((btn) => {
+      const label = btn.textContent;
+      btn.addEventListener("click", async () => {
+        const text = btn.hasAttribute("data-copy-link") ? link.href : btn.dataset.copyText;
+        const ok = await copy(text);
+        if (!ok) {
+          selectText(btn.previousElementSibling);  // al menos dejarlo seleccionado
+        }
+        btn.textContent = ok ? "¡Copiado!" : "Presioná Ctrl+C";
+        btn.classList.toggle("is-done", ok);
+        setTimeout(() => {
+          btn.textContent = label;
+          btn.classList.remove("is-done");
+        }, 1800);
+      });
+    });
+  })();
+</script>

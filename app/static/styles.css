@@ -130,6 +130,46 @@ input[type="file"] {
   color: var(--muted);
 }
 
+.job-ref {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.job-ref-value {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+a.job-ref-value {
+  color: var(--accent);
+}
+
+.btn-copy {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-copy:hover {
+  background: #111728;
+}
+
+.btn-copy.is-done {
+  border-color: rgba(78, 220, 124, 0.46);
+  color: #d9ffe7;
+}
+
 .actions {
   display: grid;
   gap: 10px;

@@ -13,7 +13,7 @@
         <h1>Resultados disponibles</h1>
 
         <div class="meta">
-          <p><span>Job ID</span> {{ job_id }}</p>
+          {% include "_job_link.html" %}
           <p><span>ZIP</span> {{ zip_name }}</p>
           <p><span>CSV</span> metricas_generales.csv / metricas_por_imagen.csv</p>
         </div>
