@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import Dict
 
 import numpy as np
-from scipy.ndimage import binary_dilation, distance_transform_edt, label as ndi_label
+from scipy.ndimage import distance_transform_edt, find_objects, label as ndi_label, maximum_filter1d
+
+
+def _box_dilation(bw: np.ndarray, radius: int) -> np.ndarray:
+    """Dilatación con cuadrado (2r+1)x(2r+1), separable en dos pasadas 1D (equivale a
+    binary_dilation con np.ones, pero mucho más rápida para radios grandes)."""
+    out = maximum_filter1d(bw.astype(np.uint8), size=2 * radius + 1, axis=0, mode="constant", cval=0)
+    out = maximum_filter1d(out, size=2 * radius + 1, axis=1, mode="constant", cval=0)
+    return out.astype(bool)
 
 
 def compute_instance_areas(labels: np.ndarray) -> np.ndarray:
@@ -71,16 +79,26 @@ def filter_cells_by_area(
     if min_area > 0:
         candidate_ids = candidate_ids[areas[candidate_ids] >= int(min_area)]
 
-    out = np.zeros_like(cells_lab, dtype=np.uint16)
-    keep_ids: list[int] = []
-    for old_id in candidate_ids:
-        if shape_filter_enabled and _instance_elongation(cells_lab == old_id) > float(max_elongation):
-            continue
-        keep_ids.append(int(old_id))
+    if shape_filter_enabled:
+        slices = find_objects(cells_lab)
+        candidate_ids = np.array(
+            [
+                old_id
+                for old_id in candidate_ids
+                if slices[old_id - 1] is not None
+                and _instance_elongation(cells_lab[slices[old_id - 1]] == old_id) <= float(max_elongation)
+            ],
+            dtype=int,
+        )
 
-    for new_id, old_id in enumerate(keep_ids, start=1):
-        out[cells_lab == old_id] = new_id
-    return out
+    return _relabel_keep(cells_lab, candidate_ids)
+
+
+def _relabel_keep(lab: np.ndarray, keep_ids: np.ndarray) -> np.ndarray:
+    """Conserva sólo keep_ids (ascendente) y los re-etiqueta 1..N con una tabla de búsqueda."""
+    lut = np.zeros(int(lab.max()) + 1, dtype=np.uint16)
+    lut[keep_ids] = np.arange(1, len(keep_ids) + 1, dtype=np.uint16)
+    return lut[lab]
 
 
 def filter_parasites_by_area(parasites_lab: np.ndarray, max_area: int) -> np.ndarray:
@@ -109,10 +127,7 @@ def filter_parasites_by_area(parasites_lab: np.ndarray, max_area: int) -> np.nda
     keep_ids = np.where(areas <= int(max_area))[0]
     keep_ids = keep_ids[keep_ids != 0]
 
-    out = np.zeros_like(parasites_lab, dtype=np.uint16)
-    for new_id, old_id in enumerate(keep_ids, start=1):
-        out[parasites_lab == old_id] = new_id
-    return out
+    return _relabel_keep(parasites_lab, keep_ids)
 
 
 def merge_parasites(parasites_lab: np.ndarray, merge_radius: int = 2) -> np.ndarray:
@@ -140,10 +155,7 @@ def merge_parasites(parasites_lab: np.ndarray, merge_radius: int = 2) -> np.ndar
     if parasites_lab.size == 0 or int(parasites_lab.max()) == 0:
         return parasites_lab.astype(np.uint16, copy=False)
 
-    bw = parasites_lab > 0
-    structure = np.ones((2 * merge_radius + 1, 2 * merge_radius + 1), dtype=bool)
-    bw_dil = binary_dilation(bw, structure=structure)
-    merged, _ = ndi_label(bw_dil)
+    merged, _ = ndi_label(_box_dilation(parasites_lab > 0, merge_radius))
     return merged.astype(np.uint16, copy=False)
 
 
@@ -184,24 +196,19 @@ def nearest_cell_distance(cells_lab: np.ndarray, pmask: np.ndarray) -> tuple[int
     return cid, distance
 
 
-def _cluster_owner_by_contact(
-    cells_lab: np.ndarray,
-    cluster_mask: np.ndarray,
-    margin: float,
-) -> int:
-    c_total = int(cells_lab.max()) if cells_lab.size else 0
-    if c_total == 0 or not cluster_mask.any():
+def _owner_by_contact(cell_ids: np.ndarray, contact: np.ndarray, margin: float) -> int:
+    """Célula dueña de un cluster, dados los píxeles de contacto de cada célula tocada
+    (cell_ids ascendente, sin fondo). 0 si no hay contacto o el margen no se cumple."""
+    if contact.size == 0:
         return 0
 
-    contact = np.bincount(cells_lab[cluster_mask].ravel(), minlength=c_total + 1)
-    contact[0] = 0
-    best_cid = int(contact.argmax())
-    best_contact = int(contact[best_cid])
+    best = int(contact.argmax())  # menor ID en empates
+    best_cid = int(cell_ids[best])
+    best_contact = int(contact[best])
     if best_contact <= 0:
         return 0
 
-    sorted_contact = np.sort(contact[1:])
-    second_contact = int(sorted_contact[-2]) if sorted_contact.size >= 2 else 0
+    second_contact = int(np.partition(contact, -2)[-2]) if contact.size >= 2 else 0
     safe_margin = max(float(margin), 1.0)
     if second_contact > 0 and best_contact < second_contact * safe_margin:
         return 0
@@ -223,13 +230,36 @@ def _refine_assignments_by_clusters(
     if radius <= 0 or min_size <= 1 or int(parasites_lab.max()) == 0:
         return
 
-    structure = np.ones((2 * int(radius) + 1, 2 * int(radius) + 1), dtype=bool)
-    cluster_lab, cluster_count = ndi_label(binary_dilation(parasites_lab > 0, structure=structure))
+    cluster_lab, cluster_count = ndi_label(_box_dilation(parasites_lab > 0, int(radius)))
+    if cluster_count == 0:
+        return
+
+    c_total = int(cells_lab.max())
+    stride = c_total + 1
+
+    # parásitos por cluster: pares (cluster, pid) únicos
+    pyx = np.nonzero(parasites_lab)
+    pair_keys = np.unique(
+        cluster_lab[pyx].astype(np.int64) * (int(parasites_lab.max()) + 1)
+        + parasites_lab[pyx].astype(np.int64)
+    )
+    pair_cluster = pair_keys // (int(parasites_lab.max()) + 1)
+    pair_pid = pair_keys % (int(parasites_lab.max()) + 1)
+    p_bounds = np.searchsorted(pair_cluster, np.arange(1, cluster_count + 2))
+
+    # contacto de cada cluster (región dilatada) con cada célula: pares (cluster, célula)
+    cyx = np.nonzero(cluster_lab)
+    ccell = cells_lab[cyx].astype(np.int64)
+    on_cell = ccell > 0
+    contact_keys, contact_counts = np.unique(
+        cluster_lab[cyx][on_cell].astype(np.int64) * stride + ccell[on_cell], return_counts=True
+    )
+    contact_cluster = contact_keys // stride
+    contact_cid = contact_keys % stride
+    c_bounds = np.searchsorted(contact_cluster, np.arange(1, cluster_count + 2))
 
     for cluster_id in range(1, cluster_count + 1):
-        cluster_mask = cluster_lab == cluster_id
-        parasite_ids = np.unique(parasites_lab[cluster_mask])
-        parasite_ids = parasite_ids[parasite_ids != 0]
+        parasite_ids = pair_pid[p_bounds[cluster_id - 1]:p_bounds[cluster_id]]
         if parasite_ids.size < min_size:
             continue
 
@@ -250,7 +280,8 @@ def _refine_assignments_by_clusters(
         if len(current_cells) <= 1 and not has_unassigned:
             continue
 
-        owner = _cluster_owner_by_contact(cells_lab, cluster_mask, margin=margin)
+        lo, hi = c_bounds[cluster_id - 1], c_bounds[cluster_id]
+        owner = _owner_by_contact(contact_cid[lo:hi], contact_counts[lo:hi], margin=margin)
         if owner <= 0:
             continue
 
@@ -312,31 +343,43 @@ def assign_parasites(
     cell_ids = np.zeros(p_total + 1, dtype=int)
     confidence_by_pid = np.zeros(p_total + 1, dtype=float)
     direct_overlaps = np.zeros(p_total + 1, dtype=bool)
-    present_pids: list[int] = []
 
-    for pid in range(1, p_total + 1):
-        pmask = parasites_lab == pid
-        if not pmask.any():
-            continue
+    # Everything below works on all parasites at once (no per-parasite full-image masks).
+    pyx = np.nonzero(parasites_lab)
+    ppid = parasites_lab[pyx].astype(np.int64)
+    pixel_counts = np.bincount(ppid, minlength=p_total + 1)
+    present = pixel_counts > 0
+    present[0] = False
+    present_pids = np.nonzero(present)[0]
 
-        present_pids.append(pid)
-        overlap = np.bincount(cells_lab[pmask].ravel(), minlength=c_total + 1)
-        overlap[0] = 0
-        cid = int(overlap.argmax())
+    # caso 1: solapamiento directo → célula con más píxeles solapados (menor ID en empates)
+    pcell = cells_lab[pyx].astype(np.int64)
+    on_cell = pcell > 0
+    if on_cell.any():
+        keys, key_counts = np.unique(
+            ppid[on_cell] * (c_total + 1) + pcell[on_cell], return_counts=True
+        )
+        key_pid = keys // (c_total + 1)
+        key_cid = keys % (c_total + 1)
+        order = np.lexsort((key_cid, -key_counts, key_pid))
+        key_pid, key_cid = key_pid[order], key_cid[order]
+        first = np.ones(key_pid.size, dtype=bool)
+        first[1:] = key_pid[1:] != key_pid[:-1]
+        cell_ids[key_pid[first]] = key_cid[first]
+        confidence_by_pid[key_pid[first]] = 1.0
+        direct_overlaps[key_pid[first]] = True
 
-        # caso 1: solapamiento directo → confianza máxima
-        if overlap[cid] > 0:
-            confidence = 1.0
-            direct_overlaps[pid] = True
-        # caso 2: no solapa → buscar célula más cercana y calcular confianza por distancia
-        else:
-            cid, distance = nearest_cell_distance(cells_lab, pmask)
-            if cid <= 0:
-                confidence_by_pid[pid] = 0.0
-                continue
-            confidence = float(np.exp(-distance / safe_sigma))
-        cell_ids[pid] = cid
-        confidence_by_pid[pid] = confidence
+    # caso 2: no solapa → célula más cercana al centro del parásito (un solo EDT para toda la imagen)
+    need = present & ~direct_overlaps
+    if need.any():
+        dist_map, (iy, ix) = distance_transform_edt(cells_lab == 0, return_indices=True)
+        safe_counts = np.maximum(pixel_counts, 1)
+        y0 = np.round(np.bincount(ppid, weights=pyx[0], minlength=p_total + 1) / safe_counts).astype(int)
+        x0 = np.round(np.bincount(ppid, weights=pyx[1], minlength=p_total + 1) / safe_counts).astype(int)
+        npids = np.nonzero(need)[0]
+        ny, nx = iy[y0[npids], x0[npids]], ix[y0[npids], x0[npids]]
+        cell_ids[npids] = cells_lab[ny, nx]
+        confidence_by_pid[npids] = np.exp(-dist_map[y0[npids], x0[npids]] / safe_sigma)
 
     if cluster_reassignment:
         _refine_assignments_by_clusters(

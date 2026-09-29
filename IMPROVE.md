@@ -12,7 +12,7 @@ An analysis of how the web app behaves with several users at once (2–3), with 
 | 4. Thread-safe histograms (no pyplot) and model loading | **Done** (models still load on first use) |
 | 5. Background jobs + status page | **Done** |
 | 6. Template paths relative to the code | **Done** (authentication: to do) |
-| 7. Speed up `compute_metrics` | To do (new, see problem 8) |
+| 7. Speed up `compute_metrics` | **Done** (vectorized in `postprocess.py`; identical results, 68 s → 0.3 s on a synthetic 1080×1920 image with 300 cells / 400 parasites) |
 
 Also done: job IDs in URLs must be UUIDs (404 otherwise), so values like `..` can't reach the filesystem.
 
