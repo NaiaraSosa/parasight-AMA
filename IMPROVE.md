@@ -58,7 +58,7 @@ After a crash, systemd restarts the service and the job is marked "Interrumpido 
 
 ## 6. Authentication is only as good as the proxy setup (security)
 
-The app has no login of its own. Basic auth is done by nginx (`deploy/nginx-parasight.conf`, DEPLOY.md section 6). It only protects the app if `APP_HOST=127.0.0.1`; while the app listens on `0.0.0.0:8010`, anyone can skip the login. Logins are shared: the app doesn't record who uploaded a job, and there is no per-user job list. If that is needed, pass the name on with `proxy_set_header X-Remote-User $remote_user;` and store it in `status.json`.
+The app has no login of its own. Basic auth is done by an Apache reverse proxy on another server (`deploy/apache-parasight.conf`, DEPLOY.md section 6). It only protects the app if a firewall on the app server allows port 8010 from the proxy only; otherwise anyone can skip the login. Logins are shared: the app doesn't record who uploaded a job, and there is no per-user job list. If that is needed, pass the name on with `proxy_set_header X-Remote-User $remote_user;` and store it in `status.json`.
 
 ## 7. Operational limitations
 

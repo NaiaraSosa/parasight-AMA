@@ -191,9 +191,67 @@ A restart interrupts the job that is running: it is marked as failed and the use
 
 ## 6. Network access and coexistence
 
-The app listens on `APP_HOST:APP_PORT` (default `0.0.0.0:8010`) and doesn't use ports 80/443. Before choosing a port, check that it's free with `ss -ltn`. To change it, edit `APP_PORT` and restart the service.
+The app (uvicorn) listens on `APP_HOST:APP_PORT` (default `0.0.0.0:8010`) and doesn't use ports 80/443. Before choosing a port, check that it's free with `ss -ltn`. To change it, edit `APP_PORT` and restart the service.
 
-The app has no login, so **only expose the port to trusted networks**. Example with `ufw`:
+The app has no login. Access control is done by a reverse proxy, and the firewall makes sure nobody can reach the app except through it. Choose one of the layouts below.
+
+### A. Reverse proxy on another server (Apache, with basic auth)
+
+```
+browser --HTTPS :443--> proxy server (Apache, login) --HTTP :8010--> app server (parasight)
+```
+
+**What runs where**
+- **App server (this one):** only the `parasight` service. Nothing else is needed: no nginx, no Apache, no `apache2-utils`.
+- **Proxy server:** Apache with `mod_ssl`, `mod_proxy`, `mod_proxy_http`, `mod_headers`, `mod_reqtimeout`, plus `htpasswd` (package `apache2-utils`, usually installed with Apache).
+
+**Ports**
+| Where | Port | Open to |
+|---|---|---|
+| Proxy server | 443 (or another HTTPS port) | users |
+| App server | 8010 | **only the proxy server's IP** |
+
+The app must listen on an address the proxy can reach, so `APP_HOST=127.0.0.1` does **not** work in this layout (it would refuse the proxy's connections). Set `APP_HOST` to the app server's internal IP (or `0.0.0.0`) and restrict the port with a firewall.
+
+**Why the firewall matters.** The login exists only in the proxy. Anyone who can open `http://<app-server>:8010` directly skips it. "Closing the direct port" therefore means a firewall rule on the app server that allows 8010 from the proxy only and drops everything else (replace any existing rule that allows a wider range):
+
+```bash
+sudo ufw allow from <proxy-ip> to any port 8010 proto tcp comment 'parasight-AMA via proxy'
+sudo ufw delete allow from <trusted-CIDR> to any port 8010 proto tcp   # remove older, wider rule if present
+sudo ufw status numbered
+```
+
+Also check the network's own firewall or security group, if there is one. Test from a third machine: `curl -m 3 http://<app-server>:8010/` must time out, while the same command from the proxy server must return the page.
+
+**Proxy server setup**
+1. Create the users (`-c` creates the file, so use it for the first user only; the command asks for the password):
+
+   ```bash
+   sudo htpasswd -c /etc/apache2/parasight.htpasswd lab1
+   sudo htpasswd    /etc/apache2/parasight.htpasswd lab2
+   sudo chown root:www-data /etc/apache2/parasight.htpasswd && sudo chmod 640 /etc/apache2/parasight.htpasswd
+   ```
+
+   Change a password by running the same command again; remove a user with `htpasswd -D`. Apache rereads the file on each request, with no restart.
+2. Enable the modules and the site, using `deploy/apache-parasight.conf` (edit `ServerName`, the certificate paths and `APP_SERVER`):
+
+   ```bash
+   sudo a2enmod ssl proxy proxy_http headers reqtimeout
+   sudo cp apache-parasight.conf /etc/apache2/sites-available/parasight.conf
+   sudo a2ensite parasight && sudo apachectl configtest && sudo systemctl reload apache2
+   ```
+3. Check: `curl -sk -o /dev/null -w '%{http_code}\n' https://<proxy>/` gives `401`; with `-u lab1:<password>` it gives `200`.
+
+**Caveats**
+- **Use HTTPS on the public side.** Basic auth sends the password with every request. Traffic between the proxy and the app is plain HTTP, so it should stay on a trusted network (or use a VPN/SSH tunnel, or TLS in front of the app).
+- **Own host name or port, no sub-path.** Pages link to `/upload`, `/jobs/...` and so on, so `https://host/parasight/` does not work.
+- **Long uploads and timeouts.** Apache's default `mod_reqtimeout` and `ProxyTimeout` can cut off slow multi-GB uploads; the config raises them. Jobs themselves run in the background, so pages stay short.
+- **Logins are shared.** The app doesn't record who uploaded a job; every logged-in user can open any job whose link they have. Two browsers can use the same username at once and share the same queue.
+- **Client IPs in the app logs** will all be the proxy's. Apache adds `X-Forwarded-For`; the access log on the proxy has the real addresses.
+
+### B. No proxy (trusted network only)
+
+Open the port only to a trusted range. There is no login.
 
 ```bash
 sudo ufw allow from <trusted-CIDR> to any port 8010 proto tcp comment 'parasight-AMA'
@@ -201,37 +259,13 @@ sudo ufw allow from <trusted-CIDR> to any port 8010 proto tcp comment 'parasight
 
 Users open `http://<server>:8010`.
 
-Alternatives:
-- **Local only + SSH tunnel.** Set `APP_HOST=127.0.0.1`; users run `ssh -L 8010:127.0.0.1:8010 <user>@<server>` and open `http://127.0.0.1:8010`.
-- **Reverse proxy with login** (recommended if the port is reachable beyond a trusted network). See below.
+### C. SSH tunnel
 
-### Login with HTTP basic auth (nginx + htpasswd)
+Set `APP_HOST=127.0.0.1`; users run `ssh -L 8010:127.0.0.1:8010 <user>@<server>` and open `http://127.0.0.1:8010`.
 
-The app has no login of its own. nginx asks for a username and password and only then forwards the request to the app. Users are kept in a password file that is separate from the system accounts.
+### D. Proxy on the same server
 
-1. Install nginx and the `htpasswd` tool (Debian/Ubuntu: `sudo apt install nginx apache2-utils`).
-2. Create the users (`-c` creates the file, so use it for the first user only; the command asks for the password):
-
-   ```bash
-   sudo htpasswd -c /etc/nginx/parasight.htpasswd lab1
-   sudo htpasswd    /etc/nginx/parasight.htpasswd lab2
-   sudo chown root:www-data /etc/nginx/parasight.htpasswd && sudo chmod 640 /etc/nginx/parasight.htpasswd
-   ```
-
-   Change a password by running the same command again; remove a user with `sudo htpasswd -D /etc/nginx/parasight.htpasswd lab2`. nginx rereads the file on each request, so no restart is needed.
-3. Install the proxy config, editing `server_name`, the port and the certificate paths:
-
-   ```bash
-   sudo cp /opt/parasight-AMA/deploy/nginx-parasight.conf /etc/nginx/conf.d/parasight.conf
-   sudo nginx -t && sudo systemctl reload nginx
-   ```
-4. **Close the direct port.** In `/etc/parasight/parasight.env` set `APP_HOST=127.0.0.1`, then `sudo systemctl restart parasight`. If you skip this, anyone can still open `http://<server>:8010` and bypass the login. Remove any `ufw` rule for 8010.
-5. Check: `curl -sk -o /dev/null -w '%{http_code}\n' https://<server>:8443/` gives `401`, and with `-u lab1:<password>` gives `200`; `curl -m 3 http://<server>:8010/` from another machine must fail.
-
-Notes:
-- Use HTTPS. Basic auth sends the password with every request, and over plain HTTP anyone on the network can read it.
-- The users are shared logins, not per-person accounts. The app does not record who uploaded a job, and every logged-in user can open any job whose link they have. Two browsers can use the same username at the same time; they share the same queue.
-- Resetting a forgotten password is just running `htpasswd` again for that user.
+Keep `APP_HOST=127.0.0.1` and proxy to it from the same machine. Then the app isn't reachable from the network at all, so no firewall rule is needed for 8010. The Apache config works unchanged with `APP_SERVER` set to `127.0.0.1`.
 
 ## 7. Storage management
 
@@ -263,7 +297,7 @@ Then use the new path in the `useradd`/`mkdir`/`conda` commands above and in the
 
 1. **Upload limit applies after spooling.** `MAX_UPLOAD_MB` is checked while the file is saved, but the whole body has already been spooled to `$TMPDIR`. To stop oversized uploads earlier, cap them at a reverse proxy (`client_max_body_size`).
 2. **A restart interrupts the running job.** It is marked as failed and must be retried; queued jobs resume automatically.
-3. **Authentication is done by the proxy, not the app.** Without the nginx login (section 6) nothing but the job UUIDs protects results. With it, all users see the same queue, and logins are shared, not per-person.
+3. **Authentication is done by the proxy, not the app.** Without the proxy login (section 6) nothing but the job UUIDs protects results. With it, all users see the same queue, and logins are shared, not per-person.
 4. `app/core/config.py` reads environment variables only, not a `.env` file. Under systemd this is handled by `EnvironmentFile=`.
 
 ## 10. Quick reference
