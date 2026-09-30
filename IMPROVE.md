@@ -56,9 +56,9 @@ After a crash, systemd restarts the service and the job is marked "Interrumpido 
 
 **Fix:** default to `0` (no limit), keeping the explicit value in `deploy/parasight.env.example`.
 
-## 6. No authentication (security)
+## 6. Authentication is only as good as the proxy setup (security)
 
-Anyone who can reach the port can upload images and open or download any job whose ID they know. Job IDs are random UUIDs, so they can't be guessed, but links can be shared. If the app becomes reachable beyond a trusted network, put HTTP basic auth (or institutional login) in front of it at a reverse proxy (DEPLOY.md, section 6).
+The app has no login of its own. Basic auth is done by nginx (`deploy/nginx-parasight.conf`, DEPLOY.md section 6). It only protects the app if `APP_HOST=127.0.0.1`; while the app listens on `0.0.0.0:8010`, anyone can skip the login. Logins are shared: the app doesn't record who uploaded a job, and there is no per-user job list. If that is needed, pass the name on with `proxy_set_header X-Remote-User $remote_user;` and store it in `status.json`.
 
 ## 7. Operational limitations
 

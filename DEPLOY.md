@@ -203,29 +203,35 @@ Users open `http://<server>:8010`.
 
 Alternatives:
 - **Local only + SSH tunnel.** Set `APP_HOST=127.0.0.1`; users run `ssh -L 8010:127.0.0.1:8010 <user>@<server>` and open `http://127.0.0.1:8010`.
-- **Reverse proxy** (for HTTPS, authentication, or a hostname/subpath shared with other apps). Keep `APP_HOST=127.0.0.1` and proxy to it. nginx example:
+- **Reverse proxy with login** (recommended if the port is reachable beyond a trusted network). See below.
 
-  ```nginx
-  server {
-      listen 8443 ssl;                       # or a server_name on 443 shared with other apps
-      server_name parasight.example.org;
-      # ssl_certificate ...; ssl_certificate_key ...;
-      auth_basic "Parasight";
-      auth_basic_user_file /etc/nginx/parasight.htpasswd;
+### Login with HTTP basic auth (nginx + htpasswd)
 
-      client_max_body_size 0;                # or a real limit, e.g. 20g
-      proxy_request_buffering off;           # stream uploads instead of buffering them in nginx
-      proxy_read_timeout 300s;               # jobs run in the background; this only covers uploads/pages
-      proxy_send_timeout 3600s;
+The app has no login of its own. nginx asks for a username and password and only then forwards the request to the app. Users are kept in a password file that is separate from the system accounts.
 
-      location / {
-          proxy_pass http://127.0.0.1:8010;
-          proxy_set_header Host $host;
-          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-          proxy_set_header X-Forwarded-Proto $scheme;
-      }
-  }
-  ```
+1. Install nginx and the `htpasswd` tool (Debian/Ubuntu: `sudo apt install nginx apache2-utils`).
+2. Create the users (`-c` creates the file, so use it for the first user only; the command asks for the password):
+
+   ```bash
+   sudo htpasswd -c /etc/nginx/parasight.htpasswd lab1
+   sudo htpasswd    /etc/nginx/parasight.htpasswd lab2
+   sudo chown root:www-data /etc/nginx/parasight.htpasswd && sudo chmod 640 /etc/nginx/parasight.htpasswd
+   ```
+
+   Change a password by running the same command again; remove a user with `sudo htpasswd -D /etc/nginx/parasight.htpasswd lab2`. nginx rereads the file on each request, so no restart is needed.
+3. Install the proxy config, editing `server_name`, the port and the certificate paths:
+
+   ```bash
+   sudo cp /opt/parasight-AMA/deploy/nginx-parasight.conf /etc/nginx/conf.d/parasight.conf
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+4. **Close the direct port.** In `/etc/parasight/parasight.env` set `APP_HOST=127.0.0.1`, then `sudo systemctl restart parasight`. If you skip this, anyone can still open `http://<server>:8010` and bypass the login. Remove any `ufw` rule for 8010.
+5. Check: `curl -sk -o /dev/null -w '%{http_code}\n' https://<server>:8443/` gives `401`, and with `-u lab1:<password>` gives `200`; `curl -m 3 http://<server>:8010/` from another machine must fail.
+
+Notes:
+- Use HTTPS. Basic auth sends the password with every request, and over plain HTTP anyone on the network can read it.
+- The users are shared logins, not per-person accounts. The app does not record who uploaded a job, and every logged-in user can open any job whose link they have. Two browsers can use the same username at the same time; they share the same queue.
+- Resetting a forgotten password is just running `htpasswd` again for that user.
 
 ## 7. Storage management
 
@@ -257,7 +263,7 @@ Then use the new path in the `useradd`/`mkdir`/`conda` commands above and in the
 
 1. **Upload limit applies after spooling.** `MAX_UPLOAD_MB` is checked while the file is saved, but the whole body has already been spooled to `$TMPDIR`. To stop oversized uploads earlier, cap them at a reverse proxy (`client_max_body_size`).
 2. **A restart interrupts the running job.** It is marked as failed and must be retried; queued jobs resume automatically.
-3. **No authentication.** Job UUIDs are the only thing protecting results. Use firewall rules or proxy auth (section 6).
+3. **Authentication is done by the proxy, not the app.** Without the nginx login (section 6) nothing but the job UUIDs protects results. With it, all users see the same queue, and logins are shared, not per-person.
 4. `app/core/config.py` reads environment variables only, not a `.env` file. Under systemd this is handled by `EnvironmentFile=`.
 
 ## 10. Quick reference
