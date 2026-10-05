@@ -18,7 +18,7 @@ def load_image(path: PathLike) -> np.ndarray:
 
     Returns:
         Array NumPy con la imagen cargada. Las dimensiones dependen del archivo:
-        - TIFF: Puede ser 2D (Y, X), 3D (Y, X, C) o más
+        - TIFF: Puede ser 2D o multidimensional; los TIFF RGB se rechazan
         - CZI: Típicamente multidimensional con canales, Z-stacks, tiempo
 
     Raises:
@@ -33,7 +33,28 @@ def load_image(path: PathLike) -> np.ndarray:
         raise ValueError(f"Extension no soportada: {ext}")
 
     if ext in {".tif", ".tiff"}:
-        return tifffile.imread(str(p))
+        if p.name.lower().startswith("markers_counter window"):
+            raise ValueError(
+                "Exportacion anotada de ImageJ no compatible: usa la imagen "
+                "de microscopia cruda."
+            )
+        with tifffile.TiffFile(str(p)) as tif:
+            series = tif.series[0]
+            image = series.asarray()
+            axes = series.axes or ""
+
+        # TIFF RGB exports (for example ImageJ Markers_Counter images) are
+        # annotated visualizations, not the single-channel microscopy input
+        # expected by the models. Treat them as invalid instead of silently
+        # analysing only the red channel.
+        if "S" in axes:
+            samples = image.shape[axes.index("S")]
+            if samples in {3, 4}:
+                raise ValueError(
+                    "TIFF RGB no compatible: usa la imagen de microscopia cruda "
+                    "de un solo canal."
+                )
+        return image
 
     if ext == ".czi":
         with CziFile(str(p)) as czi:
@@ -114,5 +135,8 @@ def load_image_2d(path: PathLike) -> np.ndarray:
     """
     raw = load_image(path)
     img2d = extract_2d_frame(raw)
+    if img2d.ndim != 2 or img2d.size == 0:
+        raise ValueError(f"La imagen no contiene un frame 2D valido: {Path(path).name}")
+    if not np.issubdtype(img2d.dtype, np.number):
+        raise ValueError(f"La imagen no contiene datos numericos: {Path(path).name}")
     return img2d
-    

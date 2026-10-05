@@ -8,6 +8,26 @@ _MODEL = None
 _MODEL_LOCK = threading.Lock()
 _MODEL_NAME = "2D_versatile_fluo"
 
+
+def _validate_stardist_input(img2d: np.ndarray) -> np.ndarray:
+    image = np.asarray(img2d)
+    if image.ndim != 2 or image.size == 0:
+        raise ValueError("StarDist requiere una imagen 2D no vacia.")
+    if not np.issubdtype(image.dtype, np.number):
+        raise ValueError("StarDist requiere una imagen numerica.")
+    if not np.isfinite(image).all():
+        raise ValueError("La imagen contiene valores NaN o infinitos.")
+
+    pmin, pmax = np.percentile(image, [2, 99.8])
+    scale = max(abs(float(pmin)), abs(float(pmax)), 1.0)
+    if not np.isfinite([pmin, pmax]).all() or float(pmax - pmin) <= np.finfo(float).eps * scale:
+        raise ValueError(
+            "La imagen no tiene rango de intensidad suficiente para StarDist "
+            "(percentiles 2 y 99.8 iguales)."
+        )
+    return image
+
+
 def _get_stardist_model(model_name: str = _MODEL_NAME):
     """
     Obtiene o crea el modelo StarDist.
@@ -53,10 +73,11 @@ def segment_parasites(
         - labels: Array 2D int32 con máscaras. Cada parásito tiene ID único.
         - details: Dict con información detallada de cada detección.
     """
+    image = _validate_stardist_input(img2d)
     model = _get_stardist_model(model_name=model_name)
     normalizer = PercentileNormalizer()
     labels, details = model.predict_instances(
-        img2d,
+        image,
         prob_thresh=prob_thresh,
         nms_thresh=nms_thresh,
         normalizer=normalizer,
