@@ -104,6 +104,8 @@ The input can be:
 - a `.zip` file containing supported images in supported formats.
 - a directory with images in supported formats, searched recursively through subfolders.
 
+RGB TIFFs and annotated `Markers_Counter Window` exports are not analyzed: they are recorded as an error for that image and the batch continues with the remaining images.
+
 **Important note:** the preprocess command cannot be used yet! (under development).
 
 ## Using the webapp

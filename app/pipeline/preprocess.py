@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Callable
 
@@ -15,6 +17,8 @@ from app.pipeline.io import load_image_2d
 from app.pipeline.postprocess import filter_cells_by_area
 from app.pipeline.previews import build_input_preview, build_instance_preview, save_preview
 from app.pipeline.runner import _convert_to_tiff, _resolve_input_images
+
+logger = logging.getLogger("parasight.preprocess")
 
 
 QUALITY_MIN_CELL_AREA = int(os.getenv("QUALITY_MIN_CELL_AREA", "700"))
@@ -157,6 +161,7 @@ def _write_quality_csv(path: Path, rows: list[dict[str, object]]) -> None:
         "proporcion_celulas_validas",
         "score_morfologia_promedio",
         "motivo_descarte",
+        "error",
     ]
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -164,6 +169,53 @@ def _write_quality_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(f, fieldnames=fields, delimiter=";")
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _preprocess_one_image(
+    img_path: Path,
+    img_id: str,
+    folder: Path,
+    job_id: str,
+) -> tuple[dict[str, object], dict[str, object]]:
+    img2d = load_image_2d(img_path)
+    preview = build_input_preview(img2d, colormap="viridis")
+    cells_raw_lab = segment_cells(img2d)
+    raw_cell_masks = int(cells_raw_lab.max()) if cells_raw_lab.size else 0
+    cells_lab = filter_cells_by_area(cells_raw_lab, min_area=QUALITY_MIN_CELL_AREA)
+    quality = evaluate_image_quality(img2d, cells_lab)
+
+    tifffile.imwrite(str(folder / "input.tiff"), _convert_to_tiff(img2d))
+    tifffile.imwrite(str(folder / "cell_mask_preprocess.tiff"), cells_lab.astype("uint16"))
+    save_preview(folder / "input_preview.png", preview)
+    save_preview(folder / "cell_mask_preview.png", build_instance_preview(cells_lab))
+    save_preview(folder / "quality_overlay.png", build_quality_overlay(preview, cells_lab, quality))
+
+    status = "usable" if bool(quality["usable"]) else "descartada"
+    metrics = {
+        "estado": status,
+        "quality_score": float(quality["quality_score"]),
+        "mascaras_cellpose": raw_cell_masks,
+        "celulas_detectadas": int(quality["total_cells"]),
+        "celulas_validas": int(quality["valid_cells"]),
+        "celulas_invalidas": int(quality["invalid_cells"]),
+        "proporcion_celulas_validas": float(quality["valid_cell_ratio"]),
+        "score_morfologia_promedio": float(quality["mean_shape_score"]),
+        "motivo_descarte": str(quality["rejection_reason"]),
+        "error": "",
+    }
+    csv_row = {
+        "job_id": job_id,
+        "image_id": img_id,
+        "source_filename": img_path.name,
+        **metrics,
+    }
+    preview_item = {
+        "title": folder.name,
+        "folder_name": folder.name,
+        "source_filename": img_path.name,
+        "metrics": metrics,
+    }
+    return csv_row, preview_item
 
 
 def run_preprocess_from_input(
@@ -192,65 +244,58 @@ def run_preprocess_from_input(
     if progress:
         progress(0, len(images))
 
+    failed_images: list[dict[str, object]] = []
+
     for i, img_path in enumerate(images, start=1):
         img_id = f"{i:04d}"
         folder = images_root / f"{img_id}__{img_path.stem}"
         folder.mkdir(parents=True, exist_ok=True)
-
-        img2d = load_image_2d(img_path)
-        preview = build_input_preview(img2d, colormap="viridis")
-        cells_raw_lab = segment_cells(img2d)
-        raw_cell_masks = int(cells_raw_lab.max()) if cells_raw_lab.size else 0
-        cells_lab = filter_cells_by_area(cells_raw_lab, min_area=QUALITY_MIN_CELL_AREA)
-        quality = evaluate_image_quality(img2d, cells_lab)
-
-        tifffile.imwrite(str(folder / "input.tiff"), _convert_to_tiff(img2d))
-        tifffile.imwrite(str(folder / "cell_mask_preprocess.tiff"), cells_lab.astype("uint16"))
-        save_preview(folder / "input_preview.png", preview)
-        save_preview(folder / "cell_mask_preview.png", build_instance_preview(cells_lab))
-        save_preview(folder / "quality_overlay.png", build_quality_overlay(preview, cells_lab, quality))
-
-        status = "usable" if bool(quality["usable"]) else "descartada"
-        metrics = {
-            "estado": status,
-            "quality_score": float(quality["quality_score"]),
-            "mascaras_cellpose": raw_cell_masks,
-            "celulas_detectadas": int(quality["total_cells"]),
-            "celulas_validas": int(quality["valid_cells"]),
-            "celulas_invalidas": int(quality["invalid_cells"]),
-            "proporcion_celulas_validas": float(quality["valid_cell_ratio"]),
-            "score_morfologia_promedio": float(quality["mean_shape_score"]),
-            "motivo_descarte": str(quality["rejection_reason"]),
-        }
-
-        csv_rows.append(
-            {
+        try:
+            csv_row, preview_item = _preprocess_one_image(img_path, img_id, folder, job_id)
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+            logger.exception("Image %s failed quality control in job %s", img_path, job_id)
+            shutil.rmtree(folder, ignore_errors=True)
+            failed = {
                 "job_id": job_id,
                 "image_id": img_id,
                 "source_filename": img_path.name,
-                **metrics,
+                "error": error,
             }
-        )
-        preview_items.append(
-            {
-                "title": folder.name,
-                "folder_name": folder.name,
-                "source_filename": img_path.name,
-                "metrics": metrics,
-            }
-        )
-        if progress:
-            progress(len(preview_items), len(images))
+            failed_images.append(failed)
+            csv_rows.append(
+                {
+                    **failed,
+                    "estado": "error",
+                    "quality_score": "",
+                    "mascaras_cellpose": "",
+                    "celulas_detectadas": "",
+                    "celulas_validas": "",
+                    "celulas_invalidas": "",
+                    "proporcion_celulas_validas": "",
+                    "score_morfologia_promedio": "",
+                    "motivo_descarte": "",
+                }
+            )
+        else:
+            csv_rows.append(csv_row)
+            preview_items.append(preview_item)
+        finally:
+            if progress:
+                progress(i, len(images))
 
     accepted = sum(1 for row in csv_rows if row["estado"] == "usable")
-    rejected = len(csv_rows) - accepted
+    rejected = sum(1 for row in csv_rows if row["estado"] == "descartada")
+    scored_rows = [row for row in csv_rows if row["estado"] != "error"]
     summary = {
         "job_id": job_id,
         "imagenes_revisadas": len(csv_rows),
         "imagenes_usables": accepted,
         "imagenes_descartadas": rejected,
+        "imagenes_con_error": len(failed_images),
+        "errores_imagenes": failed_images,
         "quality_score_promedio": (
-            float(np.mean([float(row["quality_score"]) for row in csv_rows])) if csv_rows else 0.0
+            float(np.mean([float(row["quality_score"]) for row in scored_rows])) if scored_rows else 0.0
         ),
     }
 

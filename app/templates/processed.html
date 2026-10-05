@@ -9,14 +9,25 @@
   <body>
     <main class="page page-results">
       <section class="panel panel-results">
+        {% set image_errors = summary_metrics.get("errores_imagenes", []) %}
         <p class="eyebrow">Segmentación completada</p>
-        <h1>Resultados disponibles</h1>
+        <h1>{{ "Resultados con errores" if image_errors else "Resultados disponibles" }}</h1>
 
         <div class="meta">
           {% include "_job_link.html" %}
           <p><span>ZIP</span> {{ zip_name }}</p>
           <p><span>CSV</span> metricas_generales.csv / metricas_por_imagen.csv</p>
         </div>
+
+        {% if image_errors %}
+        <section aria-labelledby="image-errors-title">
+          <h2 id="image-errors-title">Imágenes que no se pudieron analizar</h2>
+          <p class="muted">Estas imágenes se omitieron. El resto del lote continuó normalmente.</p>
+          {% for item in image_errors %}
+          <p class="error-text"><strong>{{ item.source_filename }}</strong>: {{ item.error }}</p>
+          {% endfor %}
+        </section>
+        {% endif %}
 
         {% if preview_items and preview_items|length > 0 %}
         <section class="viewer" aria-live="polite">

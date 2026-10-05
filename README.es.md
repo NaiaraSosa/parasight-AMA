@@ -100,6 +100,8 @@ La entrada puede ser:
 - un archivo `.zip` que contenga imágenes en formatos soportados.
 - un directorio con imágenes en formatos soportados, buscando recursivamente en subcarpetas.
 
+Los TIFF RGB y las exportaciones anotadas `Markers_Counter Window` no se analizan: se registran como error para esa imagen y el lote continúa con las demás.
+
 **Nota importante:** ¡el comando preprocess todavía no puede utilizarse! (en desarrollo).
 
 ## Uso de la webapp

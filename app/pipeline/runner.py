@@ -1,5 +1,6 @@
 from __future__ import annotations
 import csv
+import logging
 import os
 import shutil
 import zipfile
@@ -18,12 +19,13 @@ from app.pipeline.io import load_image_2d
 from app.pipeline.metrics import compute_metrics, summarize_job
 from app.pipeline.previews import build_input_preview, build_instance_preview, save_preview
 from app.pipeline.postprocess import (
-    compute_instance_areas,
     filter_cells_by_area,
     filter_parasites_by_area,
     merge_parasites,
 )
 from app.pipeline.stardist import segment_parasites
+
+logger = logging.getLogger("parasight.pipeline")
 
 IMAGE_EXTS = set(IO_IMAGE_EXTS) | {".zip"}
 CELL_MIN_AREA = int(os.getenv("CELL_MIN_AREA", "1500"))
@@ -145,10 +147,16 @@ def _write_csv(path: Path, fields: list[str], rows: list[dict[str, object]]) -> 
         writer.writerows(rows)
 
 
-def _write_metrics_csvs(export_root: Path, summary: dict[str, object], image_metrics: list[dict[str, object]]) -> None:
+def _write_metrics_csvs(
+    export_root: Path,
+    summary: dict[str, object],
+    image_metrics: list[dict[str, object]],
+    image_errors: list[dict[str, object]],
+) -> None:
     general_fields = [
         "job_id",
         "imagenes_procesadas",
+        "imagenes_con_error",
         "total_celulas",
         "total_parasitos",
         "total_parasitos_asignados",
@@ -160,6 +168,7 @@ def _write_metrics_csvs(export_root: Path, summary: dict[str, object], image_met
     general_row = {
         "job_id": summary.get("job_id", ""),
         "imagenes_procesadas": int(summary.get("imagenes_procesadas", 0)),
+        "imagenes_con_error": int(summary.get("imagenes_con_error", 0)),
         "total_celulas": int(summary.get("total_celulas", 0)),
         "total_parasitos": int(summary.get("total_parasitos", 0)),
         "total_parasitos_asignados": int(summary.get("total_parasitos_asignados", 0)),
@@ -173,6 +182,8 @@ def _write_metrics_csvs(export_root: Path, summary: dict[str, object], image_met
         "job_id",
         "image_id",
         "source_filename",
+        "estado",
+        "error",
         "total_celulas",
         "total_parasitos",
         "parasitos_asignados",
@@ -186,6 +197,8 @@ def _write_metrics_csvs(export_root: Path, summary: dict[str, object], image_met
             "job_id": m.get("job_id", ""),
             "image_id": m.get("image_id", ""),
             "source_filename": m.get("source_filename", ""),
+            "estado": "procesada",
+            "error": "",
             "total_celulas": int(m.get("total_celulas", 0)),
             "total_parasitos": int(m.get("total_parasitos", 0)),
             "parasitos_asignados": int(m.get("parasitos_asignados", 0)),
@@ -196,6 +209,24 @@ def _write_metrics_csvs(export_root: Path, summary: dict[str, object], image_met
         }
         for m in image_metrics
     ]
+    image_rows.extend(
+        {
+            "job_id": error.get("job_id", ""),
+            "image_id": error.get("image_id", ""),
+            "source_filename": error.get("source_filename", ""),
+            "estado": "error",
+            "error": error.get("error", ""),
+            "total_celulas": "",
+            "total_parasitos": "",
+            "parasitos_asignados": "",
+            "parasitos_no_asignados": "",
+            "celulas_infectadas": "",
+            "promedio_parasitos_por_celula": "",
+            "parasitos_por_celula": "",
+        }
+        for error in image_errors
+    )
+    image_rows.sort(key=lambda row: str(row["image_id"]))
     _write_csv(export_root / "metricas_por_imagen.csv", image_fields, image_rows)
 
     legacy_metrics = export_root / "metrics.csv"
@@ -277,6 +308,83 @@ def _build_infected_overlay(
     overlay[border] = np.array([255, 0, 0], dtype=np.uint8)
     return overlay
 
+
+def _process_one_image(
+    img_path: Path,
+    img_id: str,
+    folder: Path,
+    job_id: str,
+) -> tuple[dict[str, object], dict[str, object]]:
+    img2d = load_image_2d(img_path)
+    tifffile.imwrite(str(folder / "input.tiff"), _convert_to_tiff(img2d))
+
+    preview = build_input_preview(img2d, colormap="viridis")
+    save_preview(folder / "input_preview.png", preview)
+
+    cells_lab = _load_preprocess_cell_mask(folder, img2d.shape)
+    if cells_lab is None:
+        cells_lab = segment_cells(img2d)
+    cells_lab = filter_cells_by_area(
+        cells_lab,
+        min_area=CELL_MIN_AREA,
+        max_elongation=CELL_MAX_ELONGATION,
+    )
+
+    parasites_lab, _ = segment_parasites(img2d)
+    parasites_lab = filter_parasites_by_area(parasites_lab, max_area=PARASITE_MAX_AREA)
+    parasites_lab = merge_parasites(parasites_lab, merge_radius=2)
+
+    tifffile.imwrite(str(folder / "cell_mask.tiff"), cells_lab.astype("uint16"))
+    tifffile.imwrite(str(folder / "parasite_mask.tiff"), parasites_lab.astype("uint16"))
+    save_preview(folder / "cell_mask_preview.png", build_instance_preview(cells_lab))
+    save_preview(folder / "parasite_mask_preview.png", build_instance_preview(parasites_lab))
+
+    metrics = {
+        "job_id": job_id,
+        "image_id": img_id,
+        "source_filename": img_path.name,
+        **compute_metrics(
+            cells_lab,
+            parasites_lab,
+            assign_sigma=PARASITE_ASSIGN_SIGMA,
+            assign_threshold=PARASITE_ASSIGN_THRESHOLD,
+            cluster_reassignment=PARASITE_CLUSTER_REASSIGNMENT,
+            cluster_radius=PARASITE_CLUSTER_RADIUS,
+            cluster_min_size=PARASITE_CLUSTER_MIN_SIZE,
+            cluster_margin=PARASITE_CLUSTER_MARGIN,
+        ),
+    }
+
+    save_histogram(
+        folder / "histograma_parasitos_por_celula.png",
+        metrics.get("parasitos_por_celula", []),
+        title=f"Parasitos por celula - {img_path.name}",
+    )
+
+    infected_overlay = _build_infected_overlay(
+        preview=preview,
+        cells_lab=cells_lab,
+        parasites_per_cell=metrics.get("parasitos_por_celula", []),
+        border_width=2,
+    )
+    save_preview(folder / "infected_overlay.png", infected_overlay)
+
+    preview_item = {
+        "title": folder.name,
+        "folder_name": folder.name,
+        "metrics": {
+            "total_celulas": int(metrics.get("total_celulas", 0)),
+            "total_parasitos": int(metrics.get("total_parasitos", 0)),
+            "celulas_infectadas": int(metrics.get("celulas_infectadas", 0)),
+            "parasitos_no_asignados": int(metrics.get("parasitos_no_asignados", 0)),
+            "parasitos_asignados": int(metrics.get("parasitos_asignados", 0)),
+            "promedio_parasitos_por_celula": float(metrics.get("promedio_parasitos_por_celula", 0.0)),
+            "parasitos_por_celula": metrics.get("parasitos_por_celula", []),
+        },
+    }
+    return metrics, preview_item
+
+
 def run_pipeline_from_input(
     input_path: Path,
     job_output_dir: Path,
@@ -310,109 +418,43 @@ def run_pipeline_from_input(
 
     all_metrics: list[dict[str, object]] = []
     preview_items: list[dict[str, object]] = []
+    failed_images: list[dict[str, object]] = []
 
     if progress:
         progress(0, len(image_entries))
 
-    for i, img_path in image_entries:
+    for position, (i, img_path) in enumerate(image_entries, start=1):
         img_id = f"{i:04d}"
         folder = images_root / f"{img_id}__{img_path.stem}"
         folder.mkdir(parents=True, exist_ok=True)
-
-        img2d = load_image_2d(img_path)
-
-        img_out = _convert_to_tiff(img2d)
-        tifffile.imwrite(str(folder / "input.tiff"), img_out)
-
-        preview = build_input_preview(img2d, colormap="viridis")
-        save_preview(folder / "input_preview.png", preview)
-
-        cells_lab = _load_preprocess_cell_mask(folder, img2d.shape)
-        if cells_lab is None:
-            cells_lab = segment_cells(img2d)
-        #save_preview(folder / "cell_mask_raw_preview.png", build_instance_preview(cells_lab))
-
-        #cell_areas = compute_instance_areas(cells_lab)
-        adaptive_cell_min = CELL_MIN_AREA
-        #if cell_areas.size > 0:
-        #    adaptive_cell_min = max(
-        #        CELL_MIN_AREA,
-        #        int(np.percentile(cell_areas, CELL_MIN_AREA_PERCENTILE)),
-        #    )
-        cells_lab = filter_cells_by_area(
-            cells_lab,
-            min_area=CELL_MIN_AREA,
-            max_elongation=CELL_MAX_ELONGATION,
-        )
-
-        parasites_lab, _ = segment_parasites(img2d)
-        #parasite_areas = compute_instance_areas(parasites_lab)
-        adaptive_parasite_max = PARASITE_MAX_AREA
-        #if parasite_areas.size > 0:
-        #    adaptive_parasite_max = min(
-        #        PARASITE_MAX_AREA,
-        #        int(np.percentile(parasite_areas, PARASITE_MAX_AREA_PERCENTILE)),
-        #    )
-        parasites_lab = filter_parasites_by_area(parasites_lab, max_area=adaptive_parasite_max)
-
-        parasites_lab = merge_parasites(parasites_lab, merge_radius=2)
-
-        tifffile.imwrite(str(folder / "cell_mask.tiff"), cells_lab.astype("uint16"))
-        tifffile.imwrite(str(folder / "parasite_mask.tiff"), parasites_lab.astype("uint16"))
-        save_preview(folder / "cell_mask_preview.png", build_instance_preview(cells_lab))
-        save_preview(folder / "parasite_mask_preview.png", build_instance_preview(parasites_lab))
-
-        metrics = {
-            "job_id": job_id,
-            "image_id": img_id,
-            "source_filename": img_path.name,
-            **compute_metrics(
-                cells_lab,
-                parasites_lab,
-                assign_sigma=PARASITE_ASSIGN_SIGMA,
-                assign_threshold=PARASITE_ASSIGN_THRESHOLD,
-                cluster_reassignment=PARASITE_CLUSTER_REASSIGNMENT,
-                cluster_radius=PARASITE_CLUSTER_RADIUS,
-                cluster_min_size=PARASITE_CLUSTER_MIN_SIZE,
-                cluster_margin=PARASITE_CLUSTER_MARGIN,
-            ),
-        }
-        all_metrics.append(metrics)
-
-        save_histogram(
-            folder / "histograma_parasitos_por_celula.png",
-            metrics.get("parasitos_por_celula", []),
-            title=f"Parásitos por celula - {img_path.name}",
-        )
-
-        preview_items.append(
-            {
-                "title": folder.name,
-                "folder_name": folder.name,
-                "metrics": {
-                    "total_celulas": int(metrics.get("total_celulas", 0)),
-                    "total_parasitos": int(metrics.get("total_parasitos", 0)),
-                    "celulas_infectadas": int(metrics.get("celulas_infectadas", 0)),
-                    "parasitos_no_asignados": int(metrics.get("parasitos_no_asignados", 0)),
-                    "parasitos_asignados": int(metrics.get("parasitos_asignados", 0)),
-                    "promedio_parasitos_por_celula": float(metrics.get("promedio_parasitos_por_celula", 0.0)),
-                    "parasitos_por_celula": metrics.get("parasitos_por_celula", []),
-                },
-            }
-        )
-
-        infected_overlay = _build_infected_overlay(
-            preview=preview,
-            cells_lab=cells_lab,
-            parasites_per_cell=metrics.get("parasitos_por_celula", []), border_width=2
-        )
-        save_preview(folder / "infected_overlay.png", infected_overlay)
-
-        if progress:
-            progress(len(preview_items), len(image_entries))
+        try:
+            metrics, preview_item = _process_one_image(img_path, img_id, folder, job_id)
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+            logger.exception("Image %s failed in job %s", img_path, job_id)
+            shutil.rmtree(folder, ignore_errors=True)
+            failed_images.append(
+                {
+                    "job_id": job_id,
+                    "image_id": img_id,
+                    "source_filename": img_path.name,
+                    "error": error,
+                }
+            )
+        else:
+            all_metrics.append(metrics)
+            preview_items.append(preview_item)
+        finally:
+            if progress:
+                progress(position, len(image_entries))
 
     summary = summarize_job(all_metrics)
-    summary_row = {"job_id": job_id, **summary}
+    summary_row = {
+        "job_id": job_id,
+        **summary,
+        "imagenes_con_error": len(failed_images),
+        "errores_imagenes": failed_images,
+    }
     all_parasites_per_cell = [
         int(value)
         for metrics in all_metrics
@@ -423,7 +465,7 @@ def run_pipeline_from_input(
         all_parasites_per_cell,
         title="Parásitos por celula - Totales",
     )
-    _write_metrics_csvs(export_root, summary_row, all_metrics)
+    _write_metrics_csvs(export_root, summary_row, all_metrics, failed_images)
 
     zip_path = job_output_dir / f"results_{job_id}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:

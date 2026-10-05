@@ -9,8 +9,9 @@
   <body>
     <main class="page page-results">
       <section class="panel panel-results">
+        {% set image_errors = summary.get("errores_imagenes", []) %}
         <p class="eyebrow">Control de calidad</p>
-        <h1>Imágenes revisadas</h1>
+        <h1>{{ "Revisión completada con errores" if image_errors else "Imágenes revisadas" }}</h1>
 
         <div class="meta">
           {% include "_job_link.html" %}
@@ -31,10 +32,24 @@
             <strong>{{ summary.imagenes_descartadas }}</strong>
           </article>
           <article>
+            <span>Con error</span>
+            <strong>{{ summary.imagenes_con_error }}</strong>
+          </article>
+          <article>
             <span>Score promedio</span>
             <strong>{{ "%.2f"|format(summary.quality_score_promedio) }}</strong>
           </article>
         </section>
+
+        {% if image_errors %}
+        <section aria-labelledby="image-errors-title">
+          <h2 id="image-errors-title">Imágenes que no se pudieron revisar</h2>
+          <p class="muted">Estas imágenes se omitieron. La revisión continuó con el resto del lote.</p>
+          {% for item in image_errors %}
+          <p class="error-text"><strong>{{ item.source_filename }}</strong>: {{ item.error }}</p>
+          {% endfor %}
+        </section>
+        {% endif %}
 
         {% if preview_items and preview_items|length > 0 %}
         <section class="viewer" aria-live="polite">
