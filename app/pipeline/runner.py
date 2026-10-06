@@ -269,12 +269,16 @@ def _build_infected_overlay(
     preview: np.ndarray, 
     cells_lab: np.ndarray, 
     parasites_per_cell: list[int] | np.ndarray,
-    border_width: int = 1
+    border_width: int | None = None,
+    border_color: tuple[int, int, int] | None = None,
 ) -> np.ndarray:
     """
-    Crea un overlay RGB marcando en rojo el contorno de células infectadas.
+    Crea un overlay RGB marcando el contorno de células infectadas.
 
-    Superpone marcas rojas sobre la preview de la imagen original para
+    El color y grosor por defecto vienen de settings (infected_border_color,
+    infected_border_width).
+
+    Superpone marcas de color sobre la preview de la imagen original para
     resaltar visualmente qué células contienen parásitos. Útil para
     verificación rápida de resultados.
 
@@ -288,6 +292,10 @@ def _build_infected_overlay(
         Array RGB (Y, X, 3) uint8 con contornos rojos sobre células infectadas.
         Células no infectadas se ven normales, infectadas tienen borde rojo.
     """
+    if border_width is None:
+        border_width = settings.infected_border_width
+    if border_color is None:
+        border_color = settings.infected_border_color
     overlay = preview.copy()
     counts = np.asarray(parasites_per_cell, dtype=int)
     if counts.size == 0:
@@ -305,7 +313,7 @@ def _build_infected_overlay(
     structure = np.ones((size, size), dtype=bool)
     eroded = binary_erosion(infected_mask, structure=structure, border_value=0)
     border = infected_mask & ~eroded
-    overlay[border] = np.array([255, 0, 0], dtype=np.uint8)
+    overlay[border] = np.array(border_color, dtype=np.uint8)
     return overlay
 
 
@@ -365,7 +373,6 @@ def _process_one_image(
         preview=preview,
         cells_lab=cells_lab,
         parasites_per_cell=metrics.get("parasitos_por_celula", []),
-        border_width=2,
     )
     save_preview(folder / "infected_overlay.png", infected_overlay)
 

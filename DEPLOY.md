@@ -227,12 +227,12 @@ Also check the network's own firewall or security group, if there is one. Test f
 1. Create the users (`-c` creates the file, so use it for the first user only; the command asks for the password):
 
    ```bash
-   sudo htpasswd -c /etc/apache2/parasight.htpasswd lab1
-   sudo htpasswd    /etc/apache2/parasight.htpasswd lab2
+   sudo htpasswd -c -B /etc/apache2/parasight.htpasswd lab1
+   sudo htpasswd -B /etc/apache2/parasight.htpasswd lab2
    sudo chown root:www-data /etc/apache2/parasight.htpasswd && sudo chmod 640 /etc/apache2/parasight.htpasswd
    ```
 
-   Change a password by running the same command again; remove a user with `htpasswd -D`. Apache rereads the file on each request, with no restart.
+   See "Managing users" below for adding, changing and removing users later. Apache rereads the file on each request, with no restart.
 2. Enable the modules and the site, using `deploy/apache-parasight.conf` (edit `ServerName`, the certificate paths and `APP_SERVER`):
 
    ```bash
@@ -241,6 +241,24 @@ Also check the network's own firewall or security group, if there is one. Test f
    sudo a2ensite parasight && sudo apachectl configtest && sudo systemctl reload apache2
    ```
 3. Check: `curl -sk -o /dev/null -w '%{http_code}\n' https://<proxy>/` gives `401`; with `-u lab1:<password>` it gives `200`.
+
+**Managing users** (run on the proxy server; the file is `/etc/apache2/parasight.htpasswd`, the path set by `AuthUserFile` in the Apache config)
+
+| Task | Command |
+|---|---|
+ing First user (creates the file) | `sudo htpasswd -c -B /etc/apache2/parasight.htpasswd lab1` |
+| Add a user | `sudo htpasswd -B /etc/apache2/parasight.htpasswd lab2` |
+| Change a password | the same command as adding; it overwrites the existing entry |
+| Remove a user | `sudo htpasswd -D /etc/apache2/parasight.htpasswd lab2` |
+| List users | `cut -d: -f1 /etc/apache2/parasight.htpasswd` |
+| Verify a password | `sudo htpasswd -v /etc/apache2/parasight.htpasswd lab1` |
+
+- `-B` stores the password as bcrypt (recommended; the default is a weaker MD5 variant). `-c` **overwrites the whole file**, so use it only for the very first user.
+- The command prompts for the password twice. For scripts, pipe it in so it doesn't end up in the shell history or `ps`: `printf '%s' "$PASS" | sudo htpasswd -iB /etc/apache2/parasight.htpasswd lab3`.
+- If you create the file as root, make sure Apache can still read it: `sudo chown root:www-data ... && sudo chmod 640 ...` (see step 1). A wrong owner shows up as `401` for every user and a permission error in `/var/log/apache2/error.log`.
+- Changes take effect on the next request. A removed user's open browser session stops working at its next request, because basic auth is re-sent every time.
+- To restrict some pages to specific users, or to allow only some of the listed users, add a `Require user lab1 lab2` line instead of `Require valid-user` in the Apache config.
+- Test a new login: `curl -sk -o /dev/null -w '%{http_code}\n' -u lab3:<password> https://<proxy>/` should give `200`.
 
 **Caveats**
 - **Use HTTPS on the public side.** Basic auth sends the password with every request. Traffic between the proxy and the app is plain HTTP, so it should stay on a trusted network (or use a VPN/SSH tunnel, or TLS in front of the app).

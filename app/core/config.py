@@ -20,6 +20,15 @@ class Settings(BaseModel):
     # Tamaño máximo por archivo subido en la webapp; 0 = sin límite.
     max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "500"))
 
+    # Overlay de células infectadas (infected_overlay.png).
+    # Color RGB "R,G,B" del contorno; el naranja contrasta con el fondo púrpura,
+    # el verde-azulado y el amarillo del colormap viridis (el rojo no).
+    infected_border_color: tuple[int, int, int] = tuple(
+        int(c) for c in os.getenv("INFECTED_BORDER_COLOR", "255,110,0").split(",")
+    )
+    # Grosor del contorno en píxeles (aprox.).
+    infected_border_width: int = int(os.getenv("INFECTED_BORDER_WIDTH", "4"))
+
 
 settings = Settings()
 
