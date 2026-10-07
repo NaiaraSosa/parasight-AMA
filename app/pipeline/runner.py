@@ -271,12 +271,16 @@ def _build_infected_overlay(
     parasites_per_cell: list[int] | np.ndarray,
     border_width: int | None = None,
     border_color: tuple[int, int, int] | None = None,
+    fill_color: tuple[int, int, int] | None = None,
+    fill_alpha: float | None = None,
 ) -> np.ndarray:
     """
-    Crea un overlay RGB marcando el contorno de células infectadas.
+    Crea un overlay RGB marcando el contorno y el interior de células infectadas.
 
-    El color y grosor por defecto vienen de settings (infected_border_color,
-    infected_border_width).
+    Los valores por defecto vienen de settings (infected_border_color,
+    infected_border_width, infected_fill_color, infected_fill_alpha).
+    El relleno se mezcla con la preview según fill_alpha (0 = sin relleno)
+    y el borde se dibuja opaco encima.
 
     Superpone marcas de color sobre la preview de la imagen original para
     resaltar visualmente qué células contienen parásitos. Útil para
@@ -289,13 +293,18 @@ def _build_infected_overlay(
             Índice i corresponde a célula con ID (i+1).
 
     Returns:
-        Array RGB (Y, X, 3) uint8 con contornos rojos sobre células infectadas.
-        Células no infectadas se ven normales, infectadas tienen borde rojo.
+        Array RGB (Y, X, 3) uint8 con borde (y relleno translúcido) sobre
+        células infectadas. Células no infectadas se ven normales.
     """
     if border_width is None:
         border_width = settings.infected_border_width
     if border_color is None:
         border_color = settings.infected_border_color
+    if fill_color is None:
+        fill_color = settings.infected_fill_color
+    if fill_alpha is None:
+        fill_alpha = settings.infected_fill_alpha
+    fill_alpha = min(1.0, max(0.0, fill_alpha))
     overlay = preview.copy()
     counts = np.asarray(parasites_per_cell, dtype=int)
     if counts.size == 0:
@@ -308,6 +317,12 @@ def _build_infected_overlay(
     infected_mask = np.isin(cells_lab, infected_ids)
     if not infected_mask.any():
         return overlay
+
+    if fill_alpha > 0:
+        region = overlay[infected_mask].astype(np.float32)
+        fill = np.array(fill_color, dtype=np.float32)
+        blended = (1.0 - fill_alpha) * region + fill_alpha * fill
+        overlay[infected_mask] = np.clip(blended + 0.5, 0, 255).astype(np.uint8)
 
     size = 2 * border_width + 1
     structure = np.ones((size, size), dtype=bool)

@@ -28,6 +28,14 @@ class Settings(BaseModel):
     )
     # Grosor del contorno en píxeles (aprox.).
     infected_border_width: int = int(os.getenv("INFECTED_BORDER_WIDTH", "4"))
+    # Relleno translúcido del interior de las células infectadas.
+    # Color RGB "R,G,B" y opacidad 0-1 (0 = sin relleno).
+    infected_fill_color: tuple[int, int, int] = tuple(
+        int(c) for c in os.getenv("INFECTED_FILL_COLOR", "255,110,0").split(",")
+    )
+    infected_fill_alpha: float = min(
+        1.0, max(0.0, float(os.getenv("INFECTED_FILL_ALPHA", "0.3")))
+    )
 
 
 settings = Settings()
