@@ -35,15 +35,7 @@ PARASITE_MAX_AREA = int(os.getenv("PARASITE_MAX_AREA", "500"))
 #PARASITE_MAX_AREA_PERCENTILE = float(os.getenv("PARASITE_MAX_AREA_PERCENTILE", "90"))
 PARASITE_ASSIGN_SIGMA = float(os.getenv("PARASITE_ASSIGN_SIGMA", "100"))
 PARASITE_ASSIGN_THRESHOLD = float(os.getenv("PARASITE_ASSIGN_THRESHOLD", "0.4"))
-# PARASITE_CLUSTER_REASSIGNMENT: reasigna a una celula los parasitos que quedaron sin celula (grupos).
-# Prendida por defecto. 0/false/no/off (o vacia, sin importar mayusculas) la apagan; cualquier otro valor la deja prendida.
-PARASITE_CLUSTER_REASSIGNMENT = os.getenv("PARASITE_CLUSTER_REASSIGNMENT", "1").strip().lower() not in {
-    "0",
-    "false",
-    "no",
-    "off",
-    "",
-}
+PARASITE_CLUSTER_REASSIGNMENT = os.getenv("PARASITE_CLUSTER_REASSIGNMENT", "1")
 PARASITE_CLUSTER_RADIUS = int(os.getenv("PARASITE_CLUSTER_RADIUS", "30"))
 PARASITE_CLUSTER_MIN_SIZE = int(os.getenv("PARASITE_CLUSTER_MIN_SIZE", "2"))
 PARASITE_CLUSTER_MARGIN = float(os.getenv("PARASITE_CLUSTER_MARGIN", "1.5"))
