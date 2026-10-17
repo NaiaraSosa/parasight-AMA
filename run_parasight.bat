@@ -1,63 +1,27 @@
 @echo off
 setlocal
-title Parasight - Segmentacion
+title Parasight - UNSAM
 
-cd /d "%~dp0"
-
-set "ENV_NAME=parasight"
-set "APP_URL=http://127.0.0.1:8000"
+set "RHO_HOST=10.1.103.91"
+set "LOCAL_PORT=8010"
+set "REMOTE_HOST=127.0.0.1"
+set "REMOTE_PORT=8010"
 
 echo.
-echo Iniciando Parasight...
-echo Carpeta del programa: %CD%
+set /p "RHO_USER=Usuario de rho: "
+
+echo.
+echo Se va a abrir una ventana negra de SSH.
+echo Si pregunta "Are you sure...", escribi yes.
+echo Despues escribi tu password.
+echo NO cierres esa ventana mientras uses Parasight.
 echo.
 
-where conda >nul 2>nul
-if %ERRORLEVEL%==0 (
-    call conda activate %ENV_NAME%
-    goto run_app
-)
+start "Parasight SSH - NO CERRAR" cmd /k "ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -N -L %LOCAL_PORT%:%REMOTE_HOST%:%REMOTE_PORT% %RHO_USER%@%RHO_HOST%"
 
-set "ACTIVATE_BAT="
-if exist "%USERPROFILE%\miniforge3\Scripts\activate.bat" set "ACTIVATE_BAT=%USERPROFILE%\miniforge3\Scripts\activate.bat"
-if not defined ACTIVATE_BAT if exist "%USERPROFILE%\Miniforge3\Scripts\activate.bat" set "ACTIVATE_BAT=%USERPROFILE%\Miniforge3\Scripts\activate.bat"
-if not defined ACTIVATE_BAT if exist "%LOCALAPPDATA%\miniforge3\Scripts\activate.bat" set "ACTIVATE_BAT=%LOCALAPPDATA%\miniforge3\Scripts\activate.bat"
-if not defined ACTIVATE_BAT if exist "C:\ProgramData\miniforge3\Scripts\activate.bat" set "ACTIVATE_BAT=C:\ProgramData\miniforge3\Scripts\activate.bat"
-
-if not defined ACTIVATE_BAT (
-    echo No encuentro Miniforge/Conda.
-    echo Abri "Miniforge Prompt" y ejecuta manualmente:
-    echo.
-    echo   conda activate %ENV_NAME%
-    echo   parasight web --host 127.0.0.1 --port 8000
-    echo.
-    pause
-    exit /b 1
-)
-
-call "%ACTIVATE_BAT%" %ENV_NAME%
-
-:run_app
-where parasight >nul 2>nul
-if ERRORLEVEL 1 (
-    echo No encuentro el comando "parasight".
-    echo Probablemente falta instalar el programa en el entorno.
-    echo.
-    echo Ejecuta una vez, desde esta carpeta:
-    echo.
-    echo   pip install -e .
-    echo.
-    pause
-    exit /b 1
-)
-
-echo Abriendo navegador en %APP_URL%
-start "" "%APP_URL%"
 echo.
-echo Deja esta ventana abierta mientras uses el programa.
-echo Para cerrar Parasight, cerra esta ventana o presiona Ctrl+C.
-echo.
+echo Esperando conexion...
+timeout /t 8 /nobreak >nul
 
-parasight web --host 127.0.0.1 --port 8000
-
-pause
+start "" "http://localhost:%LOCAL_PORT%/"
+exit /b 0
