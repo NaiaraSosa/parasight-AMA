@@ -38,6 +38,7 @@ def compute_metrics(
         - parasitos_asignados: Parásitos asignados a células con confianza ≥ threshold
         - parasitos_no_asignados: Parásitos sin asignación confiable
         - celulas_infectadas: Células con al menos un parásito asignado
+        - porcentaje_infeccion: Porcentaje de células detectadas que están infectadas
         - promedio_parasitos_por_celula: Promedio de parásitos por célula infectada
         - parasitos_por_celula: Lista con conteo de parásitos por célula
 
@@ -68,6 +69,9 @@ def compute_metrics(
     avg_parasites_per_infected_cell = (
         float(assigned_parasites / infected_cells) if infected_cells > 0 else 0.0
     )
+    infection_percentage = (
+        round(100.0 * infected_cells / total_cells, 2) if total_cells > 0 else None
+    )
 
     return {
         "total_celulas": total_cells,
@@ -75,6 +79,7 @@ def compute_metrics(
         "parasitos_asignados": assigned_parasites,
         "parasitos_no_asignados": unassigned_parasites,
         "celulas_infectadas": infected_cells,
+        "porcentaje_infeccion": infection_percentage,
         "promedio_parasitos_por_celula": round(avg_parasites_per_infected_cell),
         "parasitos_por_celula": parasites_per_cell.tolist(),
     }
@@ -99,6 +104,7 @@ def summarize_job(image_metrics: list[Dict[str, object]]) -> Dict[str, object]:
         - total_parasitos_asignados: Suma de parásitos asignados
         - total_parasitos_no_asignados: Suma de parásitos no asignados
         - total_celulas_infectadas: Suma de células infectadas
+        - porcentaje_infeccion: Porcentaje global ponderado por cantidad de células
     """
     if not image_metrics:
         return {
@@ -108,6 +114,7 @@ def summarize_job(image_metrics: list[Dict[str, object]]) -> Dict[str, object]:
             "total_parasitos_asignados": 0,
             "total_parasitos_no_asignados": 0,
             "total_celulas_infectadas": 0,
+            "porcentaje_infeccion": None,
             "promedio_parasitos_por_celula": 0.0,
         }
 
@@ -119,6 +126,9 @@ def summarize_job(image_metrics: list[Dict[str, object]]) -> Dict[str, object]:
     avg_parasites_per_infected_cell = (
         float(total_assigned / total_infected_cells) if total_infected_cells > 0 else 0.0
     )
+    infection_percentage = (
+        round(100.0 * total_infected_cells / total_cells, 2) if total_cells > 0 else None
+    )
 
     return {
         "imagenes_procesadas": len(image_metrics),
@@ -127,5 +137,6 @@ def summarize_job(image_metrics: list[Dict[str, object]]) -> Dict[str, object]:
         "total_parasitos_asignados": total_assigned,
         "total_parasitos_no_asignados": total_unassigned,
         "total_celulas_infectadas": total_infected_cells,
+        "porcentaje_infeccion": infection_percentage,
         "promedio_parasitos_por_celula": round(avg_parasites_per_infected_cell),
     }

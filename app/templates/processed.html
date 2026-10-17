@@ -56,7 +56,8 @@
                 <div><dt>Total células</dt><dd id="m-total-celulas">0</dd></div>
                 <div><dt>Total parásitos</dt><dd id="m-total-parasitos">0</dd></div>
                 <div><dt>Células infectadas</dt><dd id="m-celulas-infectadas">0</dd></div>
-                <div><dt>Promedio parásitos por célula</dt><dd id="m-promedio-parasitos-por-celula">0</dd></div>
+                <div><dt>Porcentaje de infección</dt><dd id="m-porcentaje-infeccion">N/A</dd></div>
+                <div><dt>Promedio de parásitos por célula infectada</dt><dd id="m-promedio-parasitos-por-celula">0</dd></div>
                 <div><dt>Parásitos por célula</dt><dd id="m-parasitos-por-celula">0</dd></div>
                 <div><dt>Parásitos no asignados</dt><dd id="m-parasitos-no-asignados">0</dd></div>
               </dl>
@@ -90,6 +91,7 @@
         const totalCelulasEl = document.getElementById("m-total-celulas");
         const totalParasitosEl = document.getElementById("m-total-parasitos");
         const celulasInfectadasEl = document.getElementById("m-celulas-infectadas");
+        const porcentajeInfeccionEl = document.getElementById("m-porcentaje-infeccion");
         const promedioParasitosPorCelulaEl = document.getElementById("m-promedio-parasitos-por-celula");
         const parasitosPorCelulaEl = document.getElementById("m-parasitos-por-celula");
         const parasitosNoAsignadosEl = document.getElementById("m-parasitos-no-asignados");
@@ -107,6 +109,12 @@
           return String(value ?? 0);
         }
 
+        function formatPercentage(value) {
+          if (value === null || value === undefined || value === "") return "N/A";
+          const number = Number(value);
+          return Number.isFinite(number) ? `${number.toFixed(2)}%` : "N/A";
+        }
+
         function render() {
           const item = items[idx];
           titleEl.textContent = `${item.title} (${idx + 1}/${items.length})`;
@@ -118,6 +126,7 @@
           totalCelulasEl.textContent = String(m.total_celulas ?? 0);
           totalParasitosEl.textContent = String(m.total_parasitos ?? 0);
           celulasInfectadasEl.textContent = String(m.celulas_infectadas ?? 0);
+          porcentajeInfeccionEl.textContent = formatPercentage(m.porcentaje_infeccion);
           promedioParasitosPorCelulaEl.textContent = formatNumber(m.promedio_parasitos_por_celula);
           parasitosPorCelulaEl.textContent = formatCounts(m.parasitos_por_celula);
           parasitosNoAsignadosEl.textContent = String(m.parasitos_no_asignados ?? 0);

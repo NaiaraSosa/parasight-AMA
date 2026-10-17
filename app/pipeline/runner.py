@@ -170,6 +170,7 @@ def _write_metrics_csvs(
         "total_parasitos_asignados",
         "total_parasitos_no_asignados",
         "total_celulas_infectadas",
+        "porcentaje_infeccion",
         "promedio_parasitos_por_celula",
     ]
 
@@ -182,6 +183,10 @@ def _write_metrics_csvs(
         "total_parasitos_asignados": int(summary.get("total_parasitos_asignados", 0)),
         "total_parasitos_no_asignados": int(summary.get("total_parasitos_no_asignados", 0)),
         "total_celulas_infectadas": int(summary.get("total_celulas_infectadas", 0)),
+        "porcentaje_infeccion": (
+            "" if summary.get("porcentaje_infeccion") is None
+            else float(summary["porcentaje_infeccion"])
+        ),
         "promedio_parasitos_por_celula": float(summary.get("promedio_parasitos_por_celula", 0.0)),
     }
     _write_csv(export_root / "metricas_generales.csv", general_fields, [general_row])
@@ -197,6 +202,7 @@ def _write_metrics_csvs(
         "parasitos_asignados",
         "parasitos_no_asignados",
         "celulas_infectadas",
+        "porcentaje_infeccion",
         "promedio_parasitos_por_celula",
         "parasitos_por_celula",
     ]
@@ -212,6 +218,10 @@ def _write_metrics_csvs(
             "parasitos_asignados": int(m.get("parasitos_asignados", 0)),
             "parasitos_no_asignados": int(m.get("parasitos_no_asignados", 0)),
             "celulas_infectadas": int(m.get("celulas_infectadas", 0)),
+            "porcentaje_infeccion": (
+                "" if m.get("porcentaje_infeccion") is None
+                else float(m["porcentaje_infeccion"])
+            ),
             "promedio_parasitos_por_celula": float(m.get("promedio_parasitos_por_celula", 0.0)),
             "parasitos_por_celula": _counts_to_csv_cell(m.get("parasitos_por_celula", [])),
         }
@@ -229,6 +239,7 @@ def _write_metrics_csvs(
             "parasitos_asignados": "",
             "parasitos_no_asignados": "",
             "celulas_infectadas": "",
+            "porcentaje_infeccion": "",
             "promedio_parasitos_por_celula": "",
             "parasitos_por_celula": "",
         }
@@ -389,7 +400,7 @@ def _process_one_image(
     save_histogram(
         folder / "histograma_parasitos_por_celula.png",
         metrics.get("parasitos_por_celula", []),
-        title=f"Parasitos por celula - {img_path.name}",
+        title=f"Assigned Parasites per Cell - {img_path.name}",
     )
 
     infected_overlay = _build_infected_overlay(
@@ -406,6 +417,7 @@ def _process_one_image(
             "total_celulas": int(metrics.get("total_celulas", 0)),
             "total_parasitos": int(metrics.get("total_parasitos", 0)),
             "celulas_infectadas": int(metrics.get("celulas_infectadas", 0)),
+            "porcentaje_infeccion": metrics.get("porcentaje_infeccion"),
             "parasitos_no_asignados": int(metrics.get("parasitos_no_asignados", 0)),
             "parasitos_asignados": int(metrics.get("parasitos_asignados", 0)),
             "promedio_parasitos_por_celula": float(metrics.get("promedio_parasitos_por_celula", 0.0)),
@@ -493,7 +505,7 @@ def run_pipeline_from_input(
     save_histogram(
         export_root / "histograma_global_parasitos_por_celula.png",
         all_parasites_per_cell,
-        title="Parásitos por celula - Totales",
+        title="Assigned Parasites per Cell - All Processed Images",
     )
     _write_metrics_csvs(export_root, summary_row, all_metrics, failed_images)
 

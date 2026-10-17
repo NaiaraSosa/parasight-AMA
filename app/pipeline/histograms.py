@@ -16,7 +16,7 @@ def _split_counts(parasites_per_cell: Iterable[int]) -> tuple[list[int], int]:
 def save_histogram(
     path: Path,
     parasites_per_cell: Iterable[int],
-    title: str = "Distribución de parásitos por célula",
+    title: str = "Assigned Parasites per Cell",
     zoom_max: int = 15,
 ) -> None:
     positive_values, zero_count = _split_counts(parasites_per_cell)
@@ -29,8 +29,8 @@ def save_histogram(
         ax.set_facecolor("white")
         ax.tick_params(colors="#333333", labelsize=9)
         ax.grid(axis="y", color="#dddddd", linewidth=0.8)
-        ax.set_xlabel("Parásitos por célula", color="#222222")
-        ax.set_ylabel("Cantidad de células", color="#222222")
+        ax.set_xlabel("Assigned parasites per cell", color="#222222")
+        ax.set_ylabel("Number of cells", color="#222222")
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
         for spine in ax.spines.values():
@@ -51,7 +51,11 @@ def save_histogram(
             linewidth=0.5,
             alpha=0.85,
         )
-        axes[0].set_title(f"Completo (1-{max_value})", color="#222222", fontsize=12)
+        axes[0].set_title(
+            f"Full Infected-Cell Range (1-{max_value})",
+            color="#222222",
+            fontsize=12,
+        )
         axes[0].set_xlim(0.5, max_value + 0.5)
         axes[0].xaxis.set_major_locator(MaxNLocator(integer=True, nbins=10))
 
@@ -71,22 +75,26 @@ def save_histogram(
             axes[1].text(
                 0.5,
                 0.5,
-                f"Sin valores entre 1 y {zoom_max}",
+                f"No cells with 1-{zoom_max} assigned parasites",
                 color="#333333",
                 ha="center",
                 va="center",
                 transform=axes[1].transAxes,
                 fontsize=12,
             )
-        axes[1].set_title(f"Zoom 1-{zoom_max}", color="#222222", fontsize=12)
+        axes[1].set_title(
+            f"Low-Burden Range (1-{zoom_max})",
+            color="#222222",
+            fontsize=12,
+        )
         axes[1].set_xlim(0.5, zoom_max + 0.5)
         axes[1].set_xticks(range(1, zoom_max + 1, 2))
 
     else:
         empty_message = (
-            "Sin células con parásitos asignados"
+            "No cells with assigned parasites"
             if zero_count
-            else "Sin células detectadas"
+            else "No cells detected"
         )
         for ax in axes:
             ax.text(
@@ -109,7 +117,7 @@ def save_histogram(
     fig.text(
         0.055,
         0.035,
-        f"• Cantidad de células con 0 parásitos asignados: {zero_count}",
+        f"• Uninfected cells (0 assigned parasites): {zero_count}",
         color="#222222",
         fontsize=10,
         ha="left",

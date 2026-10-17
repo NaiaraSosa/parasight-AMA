@@ -9,7 +9,7 @@ import tifffile
 
 from app.pipeline.io import load_image_2d
 from app.pipeline.histograms import _split_counts
-from app.pipeline import runner
+from app.pipeline import metrics as metrics_module, runner
 from app.pipeline.stardist import _validate_stardist_input
 
 
@@ -65,6 +65,7 @@ class BatchResilienceTests(unittest.TestCase):
                     "parasitos_asignados": 2,
                     "parasitos_no_asignados": 0,
                     "celulas_infectadas": 1,
+                    "porcentaje_infeccion": 100.0,
                     "promedio_parasitos_por_celula": 2,
                     "parasitos_por_celula": [2],
                 }
@@ -95,6 +96,43 @@ class BatchResilienceTests(unittest.TestCase):
 
             self.assertEqual([row["estado"] for row in rows], ["error", "procesada"])
             self.assertEqual(rows[0]["error"], "imagen de prueba invalida")
+            self.assertEqual(rows[1]["porcentaje_infeccion"], "100.0")
+
+            general_csv_path = root / "output" / "job_test-job" / "metricas_generales.csv"
+            with general_csv_path.open(encoding="utf-8-sig", newline="") as csv_file:
+                general_row = next(csv.DictReader(csv_file, delimiter=";"))
+
+            self.assertEqual(general_row["porcentaje_infeccion"], "100.0")
+
+
+class InfectionPercentageTests(unittest.TestCase):
+    def test_percentage_is_calculated_per_image(self):
+        assignment = {
+            "infected_cells": 1,
+            "parasites_per_cell": [2, 0],
+            "assigned_parasites": 2,
+            "unassigned_parasites": 0,
+        }
+        with patch.object(metrics_module, "assign_parasites", return_value=assignment):
+            result = metrics_module.compute_metrics(
+                np.array([[1, 2]], dtype=np.int32),
+                np.array([[1, 2]], dtype=np.int32),
+            )
+
+        self.assertEqual(result["porcentaje_infeccion"], 50.0)
+
+    def test_global_percentage_uses_total_cells(self):
+        summary = metrics_module.summarize_job([
+            {"total_celulas": 10, "celulas_infectadas": 5},
+            {"total_celulas": 90, "celulas_infectadas": 9},
+        ])
+
+        self.assertEqual(summary["porcentaje_infeccion"], 14.0)
+
+    def test_percentage_is_undefined_without_cells(self):
+        summary = metrics_module.summarize_job([])
+
+        self.assertIsNone(summary["porcentaje_infeccion"])
 
 
 if __name__ == "__main__":
