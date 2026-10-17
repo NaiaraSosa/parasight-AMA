@@ -17,6 +17,19 @@
           {% include "_job_link.html" %}
           <p><span>ZIP</span> {{ zip_name }}</p>
           <p><span>CSV</span> metricas_generales.csv / metricas_por_imagen.csv</p>
+          {% set processing_seconds = summary_metrics.get("tiempo_procesamiento_segundos") %}
+          {% if processing_seconds is not none %}
+            {% set elapsed = processing_seconds|round|int %}
+            <p><span>Tiempo de procesamiento</span>
+              {% if elapsed >= 3600 %}
+                {{ elapsed // 3600 }} h {{ (elapsed % 3600) // 60 }} min {{ elapsed % 60 }} s
+              {% elif elapsed >= 60 %}
+                {{ elapsed // 60 }} min {{ elapsed % 60 }} s
+              {% else %}
+                {{ "%.2f"|format(processing_seconds) }} s
+              {% endif %}
+            </p>
+          {% endif %}
         </div>
 
         {% if image_errors %}

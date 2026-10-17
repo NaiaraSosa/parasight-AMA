@@ -3,6 +3,7 @@ import csv
 import logging
 import os
 import shutil
+import time
 import zipfile
 from pathlib import Path
 from typing import Callable
@@ -165,6 +166,7 @@ def _write_metrics_csvs(
         "job_id",
         "imagenes_procesadas",
         "imagenes_con_error",
+        "tiempo_procesamiento_segundos",
         "total_celulas",
         "total_parasitos",
         "total_parasitos_asignados",
@@ -178,6 +180,9 @@ def _write_metrics_csvs(
         "job_id": summary.get("job_id", ""),
         "imagenes_procesadas": int(summary.get("imagenes_procesadas", 0)),
         "imagenes_con_error": int(summary.get("imagenes_con_error", 0)),
+        "tiempo_procesamiento_segundos": float(
+            summary.get("tiempo_procesamiento_segundos", 0.0)
+        ),
         "total_celulas": int(summary.get("total_celulas", 0)),
         "total_parasitos": int(summary.get("total_parasitos", 0)),
         "total_parasitos_asignados": int(summary.get("total_parasitos_asignados", 0)),
@@ -465,6 +470,7 @@ def run_pipeline_from_input(
     if progress:
         progress(0, len(image_entries))
 
+    processing_started = time.perf_counter()
     for position, (i, img_path) in enumerate(image_entries, start=1):
         img_id = f"{i:04d}"
         folder = images_root / f"{img_id}__{img_path.stem}"
@@ -489,6 +495,7 @@ def run_pipeline_from_input(
         finally:
             if progress:
                 progress(position, len(image_entries))
+    processing_seconds = round(time.perf_counter() - processing_started, 2)
 
     summary = summarize_job(all_metrics)
     summary_row = {
@@ -496,6 +503,7 @@ def run_pipeline_from_input(
         **summary,
         "imagenes_con_error": len(failed_images),
         "errores_imagenes": failed_images,
+        "tiempo_procesamiento_segundos": processing_seconds,
     }
     all_parasites_per_cell = [
         int(value)

@@ -74,6 +74,7 @@ class BatchResilienceTests(unittest.TestCase):
             with (
                 patch.object(runner, "_process_one_image", side_effect=fake_process),
                 patch.object(runner, "save_histogram"),
+                patch.object(runner.time, "perf_counter", side_effect=[100.0, 112.34]),
             ):
                 zip_path, previews, summary = runner.run_pipeline_from_input(
                     input_path=input_dir,
@@ -87,6 +88,7 @@ class BatchResilienceTests(unittest.TestCase):
             self.assertEqual(len(previews), 1)
             self.assertEqual(summary["imagenes_procesadas"], 1)
             self.assertEqual(summary["imagenes_con_error"], 1)
+            self.assertEqual(summary["tiempo_procesamiento_segundos"], 12.34)
             self.assertEqual(summary["errores_imagenes"][0]["source_filename"], "01_bad.tif")
             self.assertEqual(progress_updates[-1], (2, 2))
 
@@ -103,6 +105,7 @@ class BatchResilienceTests(unittest.TestCase):
                 general_row = next(csv.DictReader(csv_file, delimiter=";"))
 
             self.assertEqual(general_row["porcentaje_infeccion"], "100.0")
+            self.assertEqual(general_row["tiempo_procesamiento_segundos"], "12.34")
 
 
 class InfectionPercentageTests(unittest.TestCase):
