@@ -29,10 +29,10 @@ from app.pipeline.stardist import segment_parasites
 logger = logging.getLogger("parasight.pipeline")
 
 IMAGE_EXTS = set(IO_IMAGE_EXTS) | {".zip"}
-CELL_MIN_AREA = int(os.getenv("CELL_MIN_AREA", "1500"))
+CELL_MIN_AREA = int(os.getenv("CELL_MIN_AREA", "2500"))
 CELL_MAX_ELONGATION = float(os.getenv("CELL_MAX_ELONGATION", "4"))
 #CELL_MIN_AREA_PERCENTILE = float(os.getenv("CELL_MIN_AREA_PERCENTILE", "10"))
-PARASITE_MAX_AREA = int(os.getenv("PARASITE_MAX_AREA", "500"))
+PARASITE_MAX_AREA = int(os.getenv("PARASITE_MAX_AREA", "300"))
 #PARASITE_MAX_AREA_PERCENTILE = float(os.getenv("PARASITE_MAX_AREA_PERCENTILE", "90"))
 PARASITE_ASSIGN_SIGMA = float(os.getenv("PARASITE_ASSIGN_SIGMA", "100"))
 PARASITE_ASSIGN_THRESHOLD = float(os.getenv("PARASITE_ASSIGN_THRESHOLD", "0.4"))
